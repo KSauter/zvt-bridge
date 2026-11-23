@@ -219,6 +219,12 @@ func (e *ecr) transaction(cmd []byte) error {
 			accepted = true
 		case apdu[0] == 0x84:
 			return fmt.Errorf("terminal rejected: %s", zvt.APDUName(apdu))
+		case apdu[0] == 0x06 && apdu[1] == 0x1E: // Abort
+			e.send([]byte{0x80, 0x00, 0x00})
+			if len(apdu) > 3 {
+				return fmt.Errorf("terminal aborted with result code %02X (wrong password, timeout, cancelled, …)", apdu[3])
+			}
+			return errors.New("terminal aborted")
 		case apdu[0] == 0x06 && apdu[1] == 0x0F: // Completion
 			if !accepted {
 				log.Printf("note: Completion without preceding 80 00 00")
