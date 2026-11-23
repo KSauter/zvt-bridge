@@ -26,6 +26,7 @@ import (
 
 	"go.bug.st/serial"
 
+	"zvt-bridge/internal/usbip"
 	"zvt-bridge/internal/zvt"
 )
 
@@ -44,6 +45,16 @@ type runConfig struct {
 	DialTimeout time.Duration
 	LogFile     string
 	Verbose     bool
+
+	// Virtual USB serial device via USB/IP instead of a physical/virtual serial port.
+	USB        bool
+	USBListen  string
+	USBBusID   string
+	USBSerial  string
+	USBVendor  string
+	USBProduct string
+	USBAttach  bool
+	USBIPExe   string
 }
 
 func newRunFlags(name string) (*flag.FlagSet, *runConfig) {
@@ -59,12 +70,34 @@ func newRunFlags(name string) (*flag.FlagSet, *runConfig) {
 	fs.DurationVar(&c.DialTimeout, "dial-timeout", 5*time.Second, "connection timeout towards the terminal")
 	fs.StringVar(&c.LogFile, "log", "", "log file (in addition to the console; as a service defaults to ProgramData)")
 	fs.BoolVar(&c.Verbose, "v", false, "log every byte")
+	fs.BoolVar(&c.USB, "usb", false, "emulate a USB serial device over USB/IP instead of opening -serial")
+	fs.StringVar(&c.USBListen, "usb-listen", "127.0.0.1:3240", "USB/IP server address the host controller connects to")
+	fs.StringVar(&c.USBBusID, "usb-busid", "1-1", "USB/IP bus id of the emulated device")
+	fs.StringVar(&c.USBSerial, "usb-serial", "ZVT-BRIDGE-1", "USB serial number; keep it fixed so Windows reuses the COM number")
+	fs.StringVar(&c.USBVendor, "usb-vid", "1209", "USB vendor id (hex); 1209 is pid.codes")
+	fs.StringVar(&c.USBProduct, "usb-pid", "0001", "USB product id (hex); 0001 is the pid.codes test id")
+	fs.BoolVar(&c.USBAttach, "usb-attach", true, "Windows: plug the device in via usbip.exe (usbip-win2)")
+	fs.StringVar(&c.USBIPExe, "usbip-exe", defaultUsbipExe, "path of usbip.exe (usbip-win2)")
 	return fs, c
 }
 
 func (c *runConfig) validate() error {
-	if c.Serial == "" || c.Terminal == "" {
-		return fmt.Errorf("-serial and -terminal are required")
+	if c.Terminal == "" {
+		return fmt.Errorf("-terminal is required")
+	}
+	if c.Serial == "" && !c.USB {
+		return fmt.Errorf("either -serial or -usb is required")
+	}
+	if c.Serial != "" && c.USB {
+		return fmt.Errorf("-serial and -usb exclude each other")
+	}
+	if c.USB {
+		if _, err := strconv.ParseUint(c.USBVendor, 16, 16); err != nil {
+			return fmt.Errorf("-usb-vid: %w", err)
+		}
+		if _, err := strconv.ParseUint(c.USBProduct, 16, 16); err != nil {
+			return fmt.Errorf("-usb-pid: %w", err)
+		}
 	}
 	if c.StopBits != 1 && c.StopBits != 2 {
 		return fmt.Errorf("-stopbits must be 1 or 2")
@@ -101,7 +134,6 @@ func (c *runConfig) mode() *serial.Mode {
 // args renders the configuration back into a command line (for the service entry).
 func (c *runConfig) args() []string {
 	a := []string{
-		"-serial", c.Serial,
 		"-terminal", c.Terminal,
 		"-baud", strconv.Itoa(c.Baud),
 		"-stopbits", strconv.Itoa(c.StopBits),
@@ -109,6 +141,12 @@ func (c *runConfig) args() []string {
 		"-ack-timeout", c.AckTimeout.String(),
 		"-retries", strconv.Itoa(c.Retries),
 		"-dial-timeout", c.DialTimeout.String(),
+	}
+	if c.USB {
+		a = append(a, "-usb", "-usb-listen", c.USBListen, "-usb-busid", c.USBBusID, "-usb-serial", c.USBSerial,
+			"-usb-vid", c.USBVendor, "-usb-pid", c.USBProduct, "-usb-attach="+strconv.FormatBool(c.USBAttach), "-usbip-exe", c.USBIPExe)
+	} else {
+		a = append(a, "-serial", c.Serial)
 	}
 	if c.LogFile != "" {
 		a = append(a, "-log", c.LogFile)
@@ -121,6 +159,11 @@ func (c *runConfig) args() []string {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `zvt-bridge %s – ZVT over serial (ECR) ↔ ZVT over TCP (payment terminal)
+
+Two ways to reach the cash register:
+  -serial COMx   a real or virtual serial port
+  -usb           emulate a USB serial device (CDC-ACM) over USB/IP; Windows' own
+                 usbser.sys then provides the COM port (needs usbip-win2 on Windows)
 
 Commands:
   run      run the bridge in the foreground (default when no command is given)
@@ -229,13 +272,70 @@ func setupLogging(path string, console bool) (func(), error) {
 	return closer, nil
 }
 
-// runBridge operates the bridge until ctx is cancelled. If the serial side
-// fails (e.g. USB adapter unplugged) the port is reopened after a pause.
-func runBridge(ctx context.Context, cfg *runConfig) error {
+func newBridge(port io.ReadWriteCloser, cfg *runConfig) *zvt.Bridge {
 	addr := cfg.addr()
+	return &zvt.Bridge{
+		Port:       port,
+		Dial:       func() (net.Conn, error) { return net.DialTimeout("tcp", addr, cfg.DialTimeout) },
+		AckTimeout: cfg.AckTimeout,
+		Retries:    cfg.Retries,
+		Verbose:    cfg.Verbose,
+		Logf:       log.Printf,
+	}
+}
+
+// runBridge operates the bridge until ctx is cancelled.
+func runBridge(ctx context.Context, cfg *runConfig) error {
 	log.Printf("zvt-bridge %s", version)
+	log.Printf("PT: %s (connected on demand)", cfg.addr())
+	if cfg.USB {
+		return runUSB(ctx, cfg)
+	}
+	return runSerial(ctx, cfg)
+}
+
+// runUSB serves an emulated USB serial device over USB/IP and bridges it.
+func runUSB(ctx context.Context, cfg *runConfig) error {
+	vid, _ := strconv.ParseUint(cfg.USBVendor, 16, 16)
+	pid, _ := strconv.ParseUint(cfg.USBProduct, 16, 16)
+	dev := &usbip.ACM{
+		VendorID: uint16(vid), ProductID: uint16(pid),
+		Manufacturer: "zvt-bridge", Product: "zvt-bridge virtual serial port", Serial: cfg.USBSerial,
+		BusID: cfg.USBBusID, Logf: log.Printf,
+	}
+	srv := &usbip.Server{Addr: cfg.USBListen, Device: dev, Logf: log.Printf}
+	ln, err := net.Listen("tcp", cfg.USBListen)
+	if err != nil {
+		return fmt.Errorf("USB/IP server: %w", err)
+	}
+	log.Printf("ECR: USB serial device %04X:%04X serial %q, USB/IP server on %s, bus id %s", vid, pid, cfg.USBSerial, ln.Addr(), cfg.USBBusID)
+	srvErr := make(chan error, 1)
+	go func() { srvErr <- srv.Serve(ctx, ln) }()
+	if cfg.USBAttach {
+		go attachLoop(ctx, cfg, ln.Addr().String())
+	}
+	b := newBridge(dev, cfg)
+	runErr := make(chan error, 1)
+	go func() { runErr <- b.Run(ctx) }()
+	select {
+	case err := <-srvErr:
+		dev.Close()
+		<-runErr
+		return fmt.Errorf("USB/IP server: %w", err)
+	case err := <-runErr:
+		dev.Close()
+		return err
+	case <-ctx.Done():
+		dev.Close()
+		<-runErr
+		return nil
+	}
+}
+
+// runSerial opens a serial port and bridges it. If the port disappears
+// (e.g. USB adapter unplugged) it is reopened after a pause.
+func runSerial(ctx context.Context, cfg *runConfig) error {
 	log.Printf("ECR: %s, %d baud, 8 data bits, parity %s, %d stop bits", cfg.Serial, cfg.Baud, cfg.Parity, cfg.StopBits)
-	log.Printf("PT: %s (connected on demand)", addr)
 	const retryAfter = 5 * time.Second
 	for {
 		port, err := serial.Open(cfg.Serial, cfg.mode())
@@ -243,15 +343,7 @@ func runBridge(ctx context.Context, cfg *runConfig) error {
 			log.Printf("serial port %s: %v, retrying in %s", cfg.Serial, err, retryAfter)
 		} else {
 			log.Printf("ECR: %s opened", cfg.Serial)
-			b := &zvt.Bridge{
-				Port:       port,
-				Dial:       func() (net.Conn, error) { return net.DialTimeout("tcp", addr, cfg.DialTimeout) },
-				AckTimeout: cfg.AckTimeout,
-				Retries:    cfg.Retries,
-				Verbose:    cfg.Verbose,
-				Logf:       log.Printf,
-			}
-			err = b.Run(ctx)
+			err = newBridge(port, cfg).Run(ctx)
 			port.Close()
 			if ctx.Err() != nil {
 				return nil
