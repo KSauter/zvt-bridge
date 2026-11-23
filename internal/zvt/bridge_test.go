@@ -3,8 +3,10 @@ package zvt
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -135,5 +137,37 @@ func TestBridgeEndToEnd(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Run did not return")
+	}
+}
+
+// Cash register software probes a serial port by writing a single byte outside
+// a frame and expects NAK, as a terminal answers. The bridge answers on its
+// own and leaves the terminal alone.
+func TestStrayByteAnsweredWithNAK(t *testing.T) {
+	ecrSide, bridgeSide := net.Pipe()
+	var dials int32
+	b := &Bridge{
+		Port: bridgeSide,
+		Dial: func() (net.Conn, error) {
+			atomic.AddInt32(&dials, 1)
+			return nil, errors.New("no terminal in this test")
+		},
+		AckTimeout: 200 * time.Millisecond,
+		Retries:    3,
+		Logf:       t.Logf,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = b.Run(ctx) }()
+
+	var d Decoder
+	if _, err := ecrSide.Write([]byte{0x00}); err != nil {
+		t.Fatal(err)
+	}
+	if ev := readEvent(t, ecrSide, &d); ev.Kind != EvNak {
+		t.Fatalf("want NAK, got %+v", ev)
+	}
+	if n := atomic.LoadInt32(&dials); n != 0 {
+		t.Fatalf("terminal dialled %d times for a stray byte", n)
 	}
 }

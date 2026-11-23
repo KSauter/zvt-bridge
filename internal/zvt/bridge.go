@@ -139,11 +139,15 @@ func (b *Bridge) handle(ev Event) {
 			b.logf("ECR: unexpected %s ignored", map[EventKind]string{EvAck: "ACK", EvNak: "NAK"}[ev.Kind])
 		}
 	case EvGarbage:
-		if b.Verbose {
-			b.logf("ECR: byte %02X outside a frame ignored", ev.Byte)
-		}
+		// A byte outside a frame is answered with NAK, as terminals do. Cash
+		// register software relies on that to find the terminal: it writes a
+		// single byte to each serial port and takes a lone NAK as the answer
+		// of a terminal. The terminal itself is not contacted.
+		b.writeSerial([]byte{NAK})
+		b.logf("ECR: byte %02X outside a frame, NAK sent", ev.Byte)
 	case EvProtocol:
-		b.logf("ECR: protocol error, DLE followed by %02X", ev.Byte)
+		b.writeSerial([]byte{NAK})
+		b.logf("ECR: protocol error, DLE followed by %02X, NAK sent", ev.Byte)
 	}
 }
 

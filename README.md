@@ -33,6 +33,10 @@ APDUs through untouched and only translates the transport layer:
 The TCP connection to the terminal is opened on demand and reused; if the
 terminal closes it, the next command reconnects.
 
+A byte outside a frame on the serial side is answered with `NAK`, as terminals
+do. Cash register software may probe each serial port that way to find the
+terminal; the bridge answers on its own without contacting the terminal.
+
 ## Two ways to reach the cash register
 
 **`-usb` (recommended on Windows, no driver of our own).** The bridge emulates
