@@ -28,14 +28,22 @@ builds:
     binary: fakept
     env: [CGO_ENABLED=0]
     goos: [windows, linux]
-    goarch: [amd64, arm64]
+    goarch: [amd64, arm64, arm]
+    goarm: ["6", "7"]
+    ignore:
+      - goos: windows
+        goarch: arm
     ldflags: ["-s -w"]
   - id: fakeecr
     main: ./cmd/fakeecr
     binary: fakeecr
     env: [CGO_ENABLED=0]
     goos: [windows, linux]
-    goarch: [amd64, arm64]
+    goarch: [amd64, arm64, arm]
+    goarm: ["6", "7"]
+    ignore:
+      - goos: windows
+        goarch: arm
     ldflags: ["-s -w"]
 
 archives:
