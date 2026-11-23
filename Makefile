@@ -2,7 +2,7 @@ VERSION ?= dev
 LDFLAGS := -s -w -X main.version=$(VERSION)
 GO      := CGO_ENABLED=0 go
 
-.PHONY: test build build-windows e2e snapshot check clean
+.PHONY: test build build-windows e2e e2e-usbip snapshot check clean
 
 test:
 	go vet ./...
@@ -21,6 +21,9 @@ build-windows:
 
 e2e: build
 	./test/e2e-linux.sh
+
+e2e-usbip: build
+	./test/e2e-usbip-linux.sh
 
 check:
 	goreleaser check

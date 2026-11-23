@@ -1,12 +1,14 @@
 <#
 .SYNOPSIS
-  Removes the zvt-bridge service and optionally the com0com port pair or the com0com driver.
+  Removes the zvt-bridge service; optionally usbip-win2, the com0com port pair or com0com itself.
+.PARAMETER UninstallUsbip       Detaches all USB/IP devices and uninstalls usbip-win2.
 .PARAMETER RemoveVirtualPorts   Removes com0com pair 0 (CNCA0/CNCB0).
 .PARAMETER UninstallCom0com     Uninstalls com0com completely (implies -RemoveVirtualPorts).
 .PARAMETER KeepLogs             Keeps the logs under %ProgramData%\zvt-bridge.
 #>
 [CmdletBinding()]
 param(
+  [switch]$UninstallUsbip,
   [switch]$RemoveVirtualPorts,
   [switch]$UninstallCom0com,
   [switch]$KeepLogs,
@@ -25,6 +27,14 @@ if (Get-Service -Name ZvtBridge -ErrorAction SilentlyContinue) {
 Start-Sleep -Seconds 1
 if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
 if (-not $KeepLogs) { Remove-Item -Recurse -Force (Join-Path $env:ProgramData "zvt-bridge") -ErrorAction SilentlyContinue }
+
+if ($UninstallUsbip) {
+  $usbipDir = Join-Path $env:ProgramFiles "USBip"
+  $usbip = Join-Path $usbipDir "usbip.exe"
+  if (Test-Path $usbip) { & $usbip detach --all 2>$null | Out-Null }
+  $unins = Get-ChildItem -Path $usbipDir -Filter "unins*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($unins) { Start-Process -FilePath $unins.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait }
+}
 
 if ($RemoveVirtualPorts -or $UninstallCom0com) {
   $setupc = $null
