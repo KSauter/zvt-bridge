@@ -1,5 +1,9 @@
 # zvt-bridge
 
+[![CI](https://github.com/KSauter/zvt-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/KSauter/zvt-bridge/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/KSauter/zvt-bridge?include_prereleases)](https://github.com/KSauter/zvt-bridge/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Small Go service that lets a cash register (ECR) which only speaks **ZVT over a
 serial port** use a payment terminal that is connected over **ZVT over TCP/IP**
 (the usual port 20007).
@@ -61,12 +65,12 @@ gives them a COM port that leads to the terminal's LAN interface.
 
 | Path | Purpose |
 |---|---|
-| `cmd/zvt-bridge` | the bridge; on Windows also a native service (`install`, `remove`, `start`, `stop`, `status`) |
+| `cmd/zvt-bridge` | the bridge; on Windows also the setup wizard (`setup`, `uninstall`) and a native service (`install`, `remove`, `start`, `stop`, `status`) |
 | `cmd/fakept` | terminal simulator (ZVT over TCP) for tests |
 | `cmd/fakeecr` | cash register simulator (ZVT over serial) for tests |
 | `internal/zvt` | framing, CRC, decoder state machine, APDU reader, bridge logic |
 | `internal/usbip` | USB/IP server and the emulated CDC-ACM device |
-| `windows/install.ps1`, `windows/uninstall.ps1` | Windows setup: usbip-win2 (or a COM pair), service, log directory |
+| `windows/install.ps1`, `windows/uninstall.ps1` | scripted alternative to the setup wizard, also covers com0com |
 | `linux/zvt-bridge.service` | systemd unit |
 | `test/e2e-linux.sh` | end-to-end test with a PTY pair (socat) |
 | `test/e2e-usbip-linux.sh` | end-to-end test through the kernel's USB/IP client (`vhci-hcd`, needs root) |
@@ -85,8 +89,10 @@ make e2e-usbip       # Linux end-to-end test over USB/IP, needs usbip + root
 make snapshot        # goreleaser: archives for windows/linux, amd64/arm64/arm
 ```
 
-Release archives are produced with [goreleaser](https://goreleaser.com)
-(`goreleaser check`, `goreleaser release --snapshot --clean --skip=publish`).
+Releases are built by [goreleaser](https://goreleaser.com) in GitHub Actions
+when a `v*` tag is pushed (`.github/workflows/release.yml`). Each release has
+`zvt-bridge-setup_<version>_windows_<arch>.exe` (the Windows setup, see below)
+plus archives with all binaries for Windows and Linux.
 
 ## Usage
 
@@ -124,35 +130,52 @@ PT  → ECR  Status-Information    26 B  04 0F 17 27 00 04 00 00 00 00 12 50 49 
 
 ## Windows setup
 
-Run as administrator from the unpacked release archive:
+Download `zvt-bridge-setup_<version>_windows_amd64.exe` from the
+[releases](https://github.com/KSauter/zvt-bridge/releases) and double-click it.
+It asks for administrator rights and then walks through four steps in a console
+window:
+
+1. **Payment terminal** – IP address or host name (default port 20007); the
+   connection is tested right away.
+2. **Serial port** – the emulated USB serial port (recommended) or an existing
+   COM port. For the emulated port the wizard offers to download usbip-win2
+   (pinned release, SHA-256 verified; or it uses `USBip-*-x64.exe` next to the
+   setup) and asks whether the port shall get a fixed COM number (e.g. `COM7`)
+   or the next free one.
+3. **Program files** – install directory (default `%ProgramFiles%\zvt-bridge`)
+   and log file.
+4. **Summary** – confirm.
+
+The setup then installs usbip-win2 silently if needed, copies the program (and
+an `uninstall.exe`) into the install directory, registers the Windows service
+**ZvtBridge** (automatic start before login, restart after 5/10/30 s on
+failure, event log source), lists the program under *Settings > Apps*, waits
+for Windows to create the COM port, renames it if a fixed number was chosen and
+prints the result. The downloaded setup file can be deleted afterwards;
+running it again reconfigures an existing installation.
+
+Windows SmartScreen warns about unsigned downloads ("More info" → "Run
+anyway") until the releases are code-signed.
+
+Unattended (deployment scripts):
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\windows\install.ps1 -Terminal 192.168.10.50 -DownloadUsbip
+.\zvt-bridge-setup_1.0.0_windows_amd64.exe setup -terminal 192.168.10.50 -download-usbip -yes
+.\zvt-bridge-setup_1.0.0_windows_amd64.exe setup -terminal 192.168.10.50 -com COM7 -usbip-setup .\USBip-0.9.8.1-x64.exe -yes
+.\zvt-bridge-setup_1.0.0_windows_amd64.exe setup -terminal 192.168.10.50 -mode serial -serial COM12 -yes
+"%ProgramFiles%\zvt-bridge\uninstall.exe" uninstall -yes [-remove-usbip] [-keep-logs]
 ```
 
-The installer
+Select the printed COM port (9600 8N2) as the terminal's serial port in the
+cash register software. Browser-based POS software using the Web Serial API
+needs permission for the port; Chrome/Edge administrators usually grant it with
+the `SerialAllowAllPortsForUrls` policy. Do not run Zadig or similar tools on
+the device: replacing `usbser.sys` removes the COM port.
 
-- installs usbip-win2 silently if it is missing (downloaded from the pinned
-  GitHub release and verified by SHA-256, or taken from `USBip-*-x64.exe` next
-  to the script),
-- copies `zvt-bridge.exe` to `%ProgramFiles%\zvt-bridge`,
-- registers the Windows service **ZvtBridge** (automatic start before login,
-  restart after 5/10/30 s on failure, event log source) with `-usb`,
-- starts the service, waits for Windows to create the COM port and prints its
-  number.
-
-Select that COM port (9600 8N2) as the terminal's serial port in the cash
-register software. Browser-based POS software using the Web Serial API needs
-permission for the port; Chrome/Edge administrators usually grant it with the
-`SerialAllowAllPortsForUrls` policy. Do not run Zadig or similar tools on the
-device: replacing `usbser.sys` removes the COM port.
-
-Other modes: `-Mode none -PosPort COM11 -BridgePort COM12` for an existing
-COM pair, `-Mode com0com` for the free pair driver (blocked while Memory
-Integrity is on). Logs: `%ProgramData%\zvt-bridge\zvt-bridge.log`. Service
-control: `zvt-bridge.exe status | stop | start`. Remove with `uninstall.ps1`
-(`-UninstallUsbip` also removes usbip-win2).
+Logs: `%ProgramData%\zvt-bridge\zvt-bridge.log`. Service control:
+`zvt-bridge.exe status | stop | start`. The PowerShell scripts in `windows/`
+do the same as the wizard without questions and additionally support the
+com0com pair driver (`-Mode com0com`, blocked while Memory Integrity is on).
 
 The terminal must be set to ZVT over TCP/IP ("ECR via LAN", port 20007) and
 be reachable from the POS computer: `Test-NetConnection <ip> -Port 20007`.
@@ -183,7 +206,7 @@ on Windows:
 ```powershell
 .\fakept.exe -listen :20007
 .\zvt-bridge.exe run -usb -terminal 127.0.0.1 -v
-.\fakeecr.exe -serial COM9        # the port the installer / Device Manager shows
+.\fakeecr.exe -serial COM9        # the port the setup / Device Manager shows
 ```
 
 ## Limitations

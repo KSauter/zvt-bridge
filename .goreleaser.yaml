@@ -1,7 +1,7 @@
 # goreleaser v2
 #   check:          goreleaser check
 #   local build:    goreleaser release --snapshot --clean --skip=publish
-#   real release:   git tag v0.1.0 && goreleaser release --clean   (needs GITHUB_TOKEN)
+#   real release:   git tag v0.1.0 && git push --tags   (.github/workflows/release.yml)
 version: 2
 project_name: zvt-bridge
 
@@ -47,7 +47,17 @@ builds:
     ldflags: ["-s -w"]
 
 archives:
+  # Windows: the bare program as zvt-bridge-setup_<version>_windows_<arch>.exe.
+  # Started by double-click it runs the setup wizard and installs itself.
+  - id: setup
+    ids: [zvt-bridge]
+    formats: [none]
+    format_overrides:
+      - goos: windows
+        formats: [binary]
+    name_template: "{{ .ProjectName }}-setup_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
   - id: default
+    ids: [zvt-bridge, fakept, fakeecr]
     formats: [tar.gz]
     format_overrides:
       - goos: windows
@@ -62,10 +72,12 @@ archives:
 checksum:
   name_template: checksums.txt
 
-# No git remote yet. Once the repository lives on GitHub, delete this block so
-# `goreleaser release --clean` uploads the archives to a GitHub release.
 release:
-  disable: true
+  github:
+    owner: KSauter
+    name: zvt-bridge
+  prerelease: auto
+  draft: false
 
 snapshot:
   version_template: "{{ incpatch .Version }}-dev.{{ .ShortCommit }}"

@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race -count=1 ./...
+      - name: Build
+        run: go build ./...
+
+  cross:
+    name: Cross-compile and goreleaser check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet for Windows
+        run: GOOS=windows GOARCH=amd64 go vet ./...
+      - name: Build all targets (snapshot)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
+      - name: Collect the Windows setup
+        # goreleaser renames the bare binary only when uploading a release
+        run: cp dist/zvt-bridge_windows_amd64*/zvt-bridge.exe dist/zvt-bridge-setup_snapshot_windows_amd64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zvt-bridge-snapshot-windows-amd64
+          path: |
+            dist/zvt-bridge-setup_snapshot_windows_amd64.exe
+            dist/*_windows_amd64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  e2e:
+    name: End-to-end (Linux, PTY and USB/IP)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install socat and usbip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y socat linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -y socat linux-tools-generic
+      - name: PTY end-to-end
+        run: make e2e
+      - name: USB/IP end-to-end (vhci-hcd)
+        run: |
+          if sudo modprobe vhci-hcd && command -v usbip >/dev/null; then
+            make e2e-usbip
+          else
+            echo "::warning::vhci-hcd or usbip not available on this runner; skipping"
+          fi
