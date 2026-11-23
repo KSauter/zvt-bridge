@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -94,6 +96,14 @@ func cmdService(cmd string, args []string) int {
 	}
 }
 
+func currentExe() (string, error) {
+	exe, err := os.Executable()
+	if err == nil {
+		exe, err = filepath.Abs(exe)
+	}
+	return exe, err
+}
+
 func svcInstall(args []string) int {
 	fs, cfg := newRunFlags("install")
 	fs.Usage = usage
@@ -105,27 +115,75 @@ func svcInstall(args []string) int {
 		usage()
 		return 2
 	}
-	if cfg.LogFile == "" {
-		cfg.LogFile = defaultLogPath()
-	}
-	exe, err := os.Executable()
-	if err == nil {
-		exe, err = filepath.Abs(exe)
-	}
+	exe, err := currentExe()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	svcArgs, err := installService(cfg, exe)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("service %s installed and started:\n  %s %s\nlog: %s\n", serviceName, exe, strings.Join(svcArgs, " "), cfg.LogFile)
+	return 0
+}
+
+var errServiceNotInstalled = errors.New("service " + serviceName + " is not installed")
+
+// serviceInstalled reports whether the service exists.
+func serviceInstalled() bool {
 	m, err := mgr.Connect()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "service control manager: %v (run as administrator)\n", err)
-		return 1
+		return false
+	}
+	defer m.Disconnect()
+	s, err := m.OpenService(serviceName)
+	if err != nil {
+		return false
+	}
+	s.Close()
+	return true
+}
+
+// installedServiceArgs returns the command line of the existing service
+// (program first), or nil when there is none.
+func installedServiceArgs() []string {
+	m, err := mgr.Connect()
+	if err != nil {
+		return nil
+	}
+	defer m.Disconnect()
+	s, err := m.OpenService(serviceName)
+	if err != nil {
+		return nil
+	}
+	defer s.Close()
+	c, err := s.Config()
+	if err != nil {
+		return nil
+	}
+	args, err := windows.DecomposeCommandLine(c.BinaryPathName)
+	if err != nil {
+		return []string{}
+	}
+	return args
+}
+
+// installService registers exe with cfg as an automatically starting service,
+// starts it and waits until it runs. It returns the service arguments.
+func installService(cfg *runConfig, exe string) ([]string, error) {
+	if cfg.LogFile == "" {
+		cfg.LogFile = defaultLogPath()
+	}
+	m, err := mgr.Connect()
+	if err != nil {
+		return nil, fmt.Errorf("service control manager: %v (run as administrator)", err)
 	}
 	defer m.Disconnect()
 	if s, err := m.OpenService(serviceName); err == nil {
 		s.Close()
-		fmt.Fprintf(os.Stderr, "service %s already exists, run 'zvt-bridge remove' first\n", serviceName)
-		return 1
+		return nil, fmt.Errorf("service %s already exists, run 'zvt-bridge remove' first", serviceName)
 	}
 	svcArgs := append([]string{"run"}, cfg.args()...)
 	s, err := m.CreateService(serviceName, exe, mgr.Config{
@@ -134,8 +192,7 @@ func svcInstall(args []string) int {
 		StartType:   mgr.StartAutomatic,
 	}, svcArgs...)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "create service: %v\n", err)
-		return 1
+		return nil, fmt.Errorf("create service: %w", err)
 	}
 	defer s.Close()
 	if err := s.SetRecoveryActions([]mgr.RecoveryAction{
@@ -149,26 +206,39 @@ func svcInstall(args []string) int {
 		fmt.Fprintf(os.Stderr, "warning: event log source not registered: %v\n", err)
 	}
 	os.MkdirAll(filepath.Dir(cfg.LogFile), 0o755)
-	fmt.Printf("service %s installed:\n  %s %s\n", serviceName, exe, strings.Join(svcArgs, " "))
 	if err := s.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "start service: %v\n", err)
-		return 1
+		return svcArgs, fmt.Errorf("start service: %w", err)
 	}
-	fmt.Println("service started; log:", cfg.LogFile)
-	return 0
+	if st := waitState(s, svc.Running, 20*time.Second); st != svc.Running {
+		return svcArgs, fmt.Errorf("service is %s instead of running; see %s", stateName(st), cfg.LogFile)
+	}
+	// A bridge that cannot bind its ports exits right after reporting "running".
+	time.Sleep(1500 * time.Millisecond)
+	if st, err := s.Query(); err == nil && st.State != svc.Running {
+		return svcArgs, fmt.Errorf("service stopped right after starting; see %s", cfg.LogFile)
+	}
+	return svcArgs, nil
 }
 
 func svcRemove() int {
+	if err := removeService(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("service %s removed\n", serviceName)
+	return 0
+}
+
+// removeService stops and deletes the service.
+func removeService() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "service control manager: %v (run as administrator)\n", err)
-		return 1
+		return fmt.Errorf("service control manager: %v (run as administrator)", err)
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(serviceName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "service %s is not installed\n", serviceName)
-		return 1
+		return errServiceNotInstalled
 	}
 	defer s.Close()
 	if st, err := s.Query(); err == nil && st.State != svc.Stopped {
@@ -177,12 +247,10 @@ func svcRemove() int {
 		}
 	}
 	if err := s.Delete(); err != nil {
-		fmt.Fprintf(os.Stderr, "delete service: %v\n", err)
-		return 1
+		return fmt.Errorf("delete service: %w", err)
 	}
 	eventlog.Remove(serviceName)
-	fmt.Printf("service %s removed\n", serviceName)
-	return 0
+	return nil
 }
 
 func svcControl(cmd string) int {
@@ -225,11 +293,20 @@ func svcControl(cmd string) int {
 	return 0
 }
 
-func waitState(s *mgr.Service, want svc.State, timeout time.Duration) {
+// waitState polls until the service reaches want or timeout passes and
+// returns the last state seen.
+func waitState(s *mgr.Service, want svc.State, timeout time.Duration) svc.State {
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if st, err := s.Query(); err == nil && st.State == want {
-			return
+	last := svc.State(0)
+	for {
+		if st, err := s.Query(); err == nil {
+			last = st.State
+			if last == want {
+				return last
+			}
+		}
+		if time.Now().After(deadline) {
+			return last
 		}
 		time.Sleep(300 * time.Millisecond)
 	}

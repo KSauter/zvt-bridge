@@ -3,6 +3,9 @@
 //
 // Commands:
 //
+//	zvt-bridge                                  Windows: interactive setup (also by double-click)
+//	zvt-bridge setup [-terminal … -yes …]       Windows: setup wizard, unattended with -yes
+//	zvt-bridge uninstall                        Windows: remove everything again
 //	zvt-bridge [run] -serial COM7 -terminal 192.168.1.50 [options]
 //	zvt-bridge list                             show serial ports
 //	zvt-bridge install -serial … -terminal …    install and start the Windows service
@@ -19,6 +22,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -26,8 +31,8 @@ import (
 
 	"go.bug.st/serial"
 
-	"zvt-bridge/internal/usbip"
-	"zvt-bridge/internal/zvt"
+	"github.com/KSauter/zvt-bridge/internal/usbip"
+	"github.com/KSauter/zvt-bridge/internal/zvt"
 )
 
 var version = "dev"
@@ -166,10 +171,14 @@ Two ways to reach the cash register:
                  usbser.sys then provides the COM port (needs usbip-win2 on Windows)
 
 Commands:
-  run      run the bridge in the foreground (default when no command is given)
-  list     show serial ports
-  install  install and start the Windows service (same options as run)
-  remove   remove the Windows service
+  setup      Windows: interactive setup wizard – installs usbip-win2, the program and the
+             service, and shows the COM port (default when started without arguments;
+             -yes makes it unattended, see 'zvt-bridge setup -h')
+  uninstall  Windows: remove the service, the program files and the Settings > Apps entry
+  run        run the bridge in the foreground
+  list       show serial ports
+  install    install and start the Windows service (same options as run)
+  remove     remove the Windows service
   start | stop | status   control the Windows service
   version
 
@@ -180,16 +189,36 @@ Options for run and install:
 	fs.PrintDefaults()
 }
 
+// defaultCommand picks what happens without arguments: on Windows the setup
+// wizard (a copy named uninstall.exe runs the uninstaller), elsewhere run.
+func defaultCommand() string {
+	if runtime.GOOS != "windows" {
+		return "run"
+	}
+	if exe, err := os.Executable(); err == nil &&
+		strings.HasPrefix(strings.ToLower(filepath.Base(exe)), "uninstall") {
+		return "uninstall"
+	}
+	return "setup"
+}
+
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	args := os.Args[1:]
 	cmd := "run"
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+	switch {
+	case len(args) == 0:
+		cmd = defaultCommand()
+	case !strings.HasPrefix(args[0], "-"):
 		cmd, args = args[0], args[1:]
 	}
 	switch cmd {
 	case "run":
 		os.Exit(cmdRun(args))
+	case "setup":
+		os.Exit(cmdSetup(args))
+	case "uninstall":
+		os.Exit(cmdUninstall(args))
 	case "list":
 		os.Exit(cmdList())
 	case "version":

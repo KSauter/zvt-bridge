@@ -12,7 +12,7 @@ import (
 	"net"
 	"time"
 
-	"zvt-bridge/internal/zvt"
+	"github.com/KSauter/zvt-bridge/internal/zvt"
 )
 
 var verbose bool

@@ -1,4 +1,4 @@
-module zvt-bridge
+module github.com/KSauter/zvt-bridge
 
 go 1.27.4
 
