@@ -80,7 +80,9 @@ func writeConfigFile(path string, cfg *runConfig) error {
 	add("")
 	if cfg.USB {
 		add("# Emulated USB serial device for the cash register software. Keep the serial")
-		add("# number fixed: Windows ties the COM number to it.")
+		add("# number fixed: Windows ties the COM number to it. 1209:0001 is the pid.codes")
+		add("# test id and not universally unique; changing the ids creates a new device")
+		add("# (and COM number) for Windows, so do it only before the roll-out.")
 		add("usb = true")
 		add("usb-serial = " + cfg.USBSerial)
 		add("usb-vid = " + cfg.USBVendor)

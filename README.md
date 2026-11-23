@@ -230,8 +230,14 @@ on Windows:
   bridge (ECR → PT). Terminal-initiated connections (PT → ECR, port 20008) are
   not supported.
 - Plain TCP, no TLS (as specified for ZVT).
-- The emulated device uses the pid.codes vendor id with the **test product id
-  0x0001**; a published build should get its own id from [pid.codes](https://pid.codes).
+- The emulated device identifies itself as **1209:0001**, the
+  [pid.codes](https://pid.codes/1209/0001/) test id. It is not universally
+  unique: other test devices may use it too. Windows binds the COM port by USB
+  class, not by these ids, and tells devices apart by the serial number
+  (`-usb-serial`), so this only matters if a vendor driver for exactly these
+  ids is installed. `-usb-vid`/`-usb-pid` (or the configuration file) change
+  them; do that before the roll-out, because Windows then sees a new device
+  and assigns a new COM number.
 - The USB/IP listener accepts one host controller at a time on 127.0.0.1; it
   implements control, bulk and interrupt transfers, no isochronous ones.
 
