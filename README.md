@@ -214,9 +214,12 @@ make e2e         # PTY pair: fakeecr ↔ socat ↔ zvt-bridge -serial ↔ fakept
 make e2e-usbip   # kernel USB/IP: fakeecr ↔ /dev/ttyACMn ↔ vhci-hcd ↔ zvt-bridge -usb ↔ fakept
 ```
 
-`fakeecr` performs Registration, Authorization (12.50 EUR) and Status-Enquiry
-and exits 0 when all three ended with a *Completion*. Both simulators also run
-on Windows:
+`fakeecr` performs Registration, Authorization and Status-Enquiry and exits 0
+when every sequence ended with a *Completion*. `-steps registration,status`
+leaves the Authorization out, which is what you want against a real terminal
+(an Authorization makes it ask for a card); `-password` sets the terminal
+password for the Registration (default 123456). Both simulators also run on
+Windows:
 
 ```powershell
 .\fakept.exe -listen :20007

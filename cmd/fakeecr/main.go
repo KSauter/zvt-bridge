@@ -1,6 +1,8 @@
 // fakeecr simulates a cash register speaking ZVT over a serial port.
-// It performs Registration, Authorization and Status-Enquiry and exits with
-// code 0 when every sequence ended with a Completion.
+// It performs Registration, Authorization and Status-Enquiry (selectable with
+// -steps) and exits with code 0 when every sequence ended with a Completion.
+// Against a real terminal, leave the Authorization out unless you want the
+// terminal to ask for a card.
 package main
 
 import (
@@ -9,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"go.bug.st/serial"
@@ -29,6 +32,8 @@ func main() {
 	portName := flag.String("serial", "", "serial port (required)")
 	baud := flag.Int("baud", 9600, "baud rate")
 	amount := flag.Int("amount", 100, "amount in cents for the Authorization")
+	password := flag.String("password", "123456", "six-digit terminal password for the Registration")
+	stepList := flag.String("steps", "registration,authorization,status", "comma-separated sequences to run")
 	timeout := flag.Duration("timeout", 10*time.Second, "time to wait for terminal messages")
 	flag.BoolVar(&verbose, "v", false, "log every byte")
 	flag.Parse()
@@ -46,13 +51,28 @@ func main() {
 	e := &ecr{port: port, events: make(chan zvt.Event, 64), timeout: *timeout}
 	go e.read()
 
-	steps := []struct {
+	pw, err := bcdPassword(*password)
+	if err != nil {
+		log.Fatal(err)
+	}
+	all := map[string]struct {
 		name string
 		apdu []byte
 	}{
-		{"Registration", []byte{0x06, 0x00, 0x06, 0x12, 0x34, 0x56, 0x78, 0x09, 0x78}},
-		{"Authorization", authorization(*amount)},
-		{"Status-Enquiry", []byte{0x05, 0x01, 0x00}},
+		"registration":  {"Registration", append(append([]byte{0x06, 0x00, 0x06}, pw...), 0x78, 0x09, 0x78)},
+		"authorization": {"Authorization", authorization(*amount)},
+		"status":        {"Status-Enquiry", []byte{0x05, 0x01, 0x00}},
+	}
+	var steps []struct {
+		name string
+		apdu []byte
+	}
+	for _, key := range strings.Split(*stepList, ",") {
+		st, ok := all[strings.ToLower(strings.TrimSpace(key))]
+		if !ok {
+			log.Fatalf("unknown step %q (use registration, authorization, status)", key)
+		}
+		steps = append(steps, st)
 	}
 	failed := 0
 	for _, st := range steps {
@@ -68,6 +88,21 @@ func main() {
 		os.Exit(1)
 	}
 	log.Println("all sequences completed successfully")
+}
+
+// bcdPassword packs a six-digit password into three BCD bytes.
+func bcdPassword(s string) ([]byte, error) {
+	if len(s) != 6 {
+		return nil, fmt.Errorf("password %q must have six digits", s)
+	}
+	out := make([]byte, 3)
+	for i := 0; i < 6; i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return nil, fmt.Errorf("password %q must have six digits", s)
+		}
+		out[i/2] = out[i/2]<<4 | (s[i] - '0')
+	}
+	return out, nil
 }
 
 func authorization(cents int) []byte {
