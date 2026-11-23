@@ -7,6 +7,7 @@
 //	zvt-bridge setup [-terminal … -yes …]       Windows: setup wizard, unattended with -yes
 //	zvt-bridge uninstall                        Windows: remove everything again
 //	zvt-bridge [run] -serial COM7 -terminal 192.168.1.50 [options]
+//	zvt-bridge run -config zvt-bridge.conf        same, options from a file
 //	zvt-bridge list                             show serial ports
 //	zvt-bridge install -serial … -terminal …    install and start the Windows service
 //	zvt-bridge remove | start | stop | status   manage the Windows service
@@ -40,6 +41,7 @@ var version = "dev"
 const serviceName = "ZvtBridge"
 
 type runConfig struct {
+	ConfigFile  string
 	Serial      string
 	Baud        int
 	StopBits    int
@@ -65,6 +67,7 @@ type runConfig struct {
 func newRunFlags(name string) (*flag.FlagSet, *runConfig) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	c := &runConfig{}
+	fs.StringVar(&c.ConfigFile, "config", "", "configuration file with 'option = value' lines; options on the command line override it")
 	fs.StringVar(&c.Serial, "serial", "", "serial port towards the ECR, e.g. COM7 or /dev/ttyUSB0 (required)")
 	fs.IntVar(&c.Baud, "baud", 9600, "baud rate")
 	fs.IntVar(&c.StopBits, "stopbits", 2, "stop bits (1 or 2)")
@@ -136,8 +139,12 @@ func (c *runConfig) mode() *serial.Mode {
 	return m
 }
 
-// args renders the configuration back into a command line (for the service entry).
+// args renders the configuration back into a command line (for the service
+// entry). With a configuration file the service reads everything from there.
 func (c *runConfig) args() []string {
+	if c.ConfigFile != "" {
+		return []string{"-config", c.ConfigFile}
+	}
 	a := []string{
 		"-terminal", c.Terminal,
 		"-baud", strconv.Itoa(c.Baud),
@@ -177,9 +184,10 @@ Commands:
   uninstall  Windows: remove the service, the program files and the Settings > Apps entry
   run        run the bridge in the foreground
   list       show serial ports
-  install    install and start the Windows service (same options as run)
+  install    install and start the Windows service (same options as run; with -config
+             the service reads all settings from that file at every start)
   remove     remove the Windows service
-  start | stop | status   control the Windows service
+  start | stop | restart | status   control the Windows service
   version
 
 Options for run and install:
@@ -223,7 +231,7 @@ func main() {
 		os.Exit(cmdList())
 	case "version":
 		fmt.Println("zvt-bridge", version)
-	case "install", "remove", "start", "stop", "status":
+	case "install", "remove", "start", "stop", "restart", "status":
 		os.Exit(cmdService(cmd, args))
 	case "help", "-h", "--help":
 		usage()
@@ -252,7 +260,10 @@ func cmdList() int {
 func cmdRun(args []string) int {
 	fs, cfg := newRunFlags("run")
 	fs.Usage = usage
-	if err := fs.Parse(args); err != nil {
+	if err := parseRunFlags(fs, cfg, args); err != nil {
+		if err != flag.ErrHelp {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		return 2
 	}
 	if err := cfg.validate(); err != nil {

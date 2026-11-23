@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +33,10 @@ func defaultInstallDir() string {
 		pf = `C:\Program Files`
 	}
 	return filepath.Join(pf, "zvt-bridge")
+}
+
+func defaultConfigPath() string {
+	return filepath.Join(filepath.Dir(defaultLogPath()), "zvt-bridge.conf")
 }
 
 // ensureElevated relaunches the program through UAC when it lacks
@@ -128,7 +134,27 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 	p.printf("zvt-bridge %s – setup\n", version)
 	p.printf("Connects cash register software that expects a serial ZVT terminal with a\npayment terminal that speaks ZVT over TCP/IP.\n\n")
 
-	if prev := installedServiceArgs(); prev != nil {
+	if cfg.ConfigFile == "" {
+		cfg.ConfigFile = defaultConfigPath()
+	}
+	if prev, err := readConfigFile(cfg.ConfigFile); err == nil {
+		p.printf("The existing configuration %s was found. Its values are offered as\ndefaults; the installation is renewed.\n\n", cfg.ConfigFile)
+		if cfg.Terminal == "" {
+			cfg.Terminal = prev.Terminal
+		}
+		if !prev.USB && prev.Serial != "" {
+			cfg.Mode = "serial"
+			if cfg.SerialPort == "" {
+				cfg.SerialPort = prev.Serial
+			}
+		}
+		if prev.USB && prev.USBSerial != "" && cfg.USBSerial == "ZVT-BRIDGE-1" {
+			cfg.USBSerial = prev.USBSerial
+		}
+		if prev.LogFile != "" && cfg.LogFile == defaultLogPath() {
+			cfg.LogFile = prev.LogFile
+		}
+	} else if prev := installedServiceArgs(); prev != nil {
 		p.printf("An existing %s service was found. Its settings are offered as defaults;\nit is replaced by the new one.\n\n", serviceName)
 		if cfg.Terminal == "" {
 			cfg.Terminal = flagValue(prev, "-terminal")
@@ -143,12 +169,28 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 
 	// ---- 1. Terminal
 	p.printf("Step 1/4: payment terminal\n")
-	t, err := p.ask("Terminal address (IP or host name, optional :port)", cfg.Terminal,
+	defHost, defPort := cfg.Terminal, "20007"
+	if h, pt, err := net.SplitHostPort(cfg.Terminal); err == nil {
+		defHost, defPort = h, pt
+	}
+	host, err := p.ask("Terminal IP address or host name", defHost,
 		func(s string) error { _, err := terminalAddr(s); return err })
 	if err != nil {
 		return err
 	}
-	cfg.Terminal, _ = terminalAddr(t)
+	if h, pt, err := net.SplitHostPort(host); err == nil { // host:port typed at once
+		host, defPort = h, pt
+	}
+	port, err := p.ask("Terminal TCP port for ZVT", defPort, func(s string) error {
+		if n, err := strconv.Atoi(s); err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("%q is not a valid port number", s)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	cfg.Terminal = net.JoinHostPort(host, port)
 	p.printf("Connecting to %s ... ", cfg.Terminal)
 	if err := probeTerminal(cfg.Terminal, 3*time.Second); err != nil {
 		p.printf("failed (%v)\n", err)
@@ -270,6 +312,7 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 	if cfg.LogFile, err = p.ask("Log file", cfg.LogFile, nil); err != nil {
 		return err
 	}
+	p.printf("The settings are stored in %s; the service reads that file at every start.\n", cfg.ConfigFile)
 	exe := filepath.Join(cfg.InstallDir, "zvt-bridge.exe")
 	uninstaller := filepath.Join(cfg.InstallDir, uninstallerName)
 
@@ -295,6 +338,7 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 	p.printf("  Program:      %s\n", exe)
 	p.printf("  Service:      %s, starts automatically with Windows, restarts on failure\n", serviceName)
 	p.printf("  Log:          %s\n", cfg.LogFile)
+	p.printf("  Settings:     %s\n", cfg.ConfigFile)
 	ok, err := p.yesNo("\nInstall now?", true)
 	if err != nil {
 		return err
@@ -352,6 +396,10 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 	} else {
 		rc.Serial = cfg.SerialPort
 	}
+	if err := writeConfigFile(cfg.ConfigFile, rc); err != nil {
+		return fmt.Errorf("write %s: %w", cfg.ConfigFile, err)
+	}
+	rc.ConfigFile = cfg.ConfigFile // the service reads the file at every start
 	p.printf("Installing service %s ... ", serviceName)
 	if _, err := installService(rc, exe); err != nil {
 		return err
@@ -392,7 +440,8 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 		p.printf("  The bridge uses %s; select the other end of the pair in the cash register software\n  (9600 baud, 8 data bits, no parity, 2 stop bits).\n", posPort)
 	}
 	p.printf("  Service %s is running. Log: %s\n", serviceName, cfg.LogFile)
-	p.printf("  Change settings: run the setup again. Remove: Settings > Apps > ZVT Bridge, or %s\n", uninstaller)
+	p.printf("  Settings: %s\n    (edit, then \"%s\" restart; or run the setup again)\n", cfg.ConfigFile, exe)
+	p.printf("  Remove: Settings > Apps > ZVT Bridge, or %s\n", uninstaller)
 	return nil
 }
 
@@ -486,7 +535,7 @@ func uninstallWizard(cfg *uninstallConfig, p *prompter) error {
 	logDir := filepath.Dir(defaultLogPath())
 	removeLogs := !cfg.KeepLogs
 	if removeLogs && !p.assumeYes {
-		if removeLogs, err = p.yesNo(fmt.Sprintf("Delete the log files in %s?", logDir), true); err != nil {
+		if removeLogs, err = p.yesNo(fmt.Sprintf("Delete the configuration and log files in %s?", logDir), true); err != nil {
 			return err
 		}
 	}

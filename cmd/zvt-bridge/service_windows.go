@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -107,7 +108,10 @@ func currentExe() (string, error) {
 func svcInstall(args []string) int {
 	fs, cfg := newRunFlags("install")
 	fs.Usage = usage
-	if err := fs.Parse(args); err != nil {
+	if err := parseRunFlags(fs, cfg, args); err != nil {
+		if err != flag.ErrHelp {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		return 2
 	}
 	if err := cfg.validate(); err != nil {
@@ -279,6 +283,22 @@ func svcControl(cmd string) int {
 			return 1
 		}
 		waitState(s, svc.Stopped, 30*time.Second)
+	case "restart":
+		if st, err := s.Query(); err == nil && st.State != svc.Stopped {
+			if _, err := s.Control(svc.Stop); err != nil {
+				fmt.Fprintf(os.Stderr, "stop service: %v\n", err)
+				return 1
+			}
+			if waitState(s, svc.Stopped, 30*time.Second) != svc.Stopped {
+				fmt.Fprintln(os.Stderr, "service did not stop in time")
+				return 1
+			}
+		}
+		if err := s.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "start service: %v\n", err)
+			return 1
+		}
+		waitState(s, svc.Running, 30*time.Second)
 	}
 	st, err := s.Query()
 	if err != nil {

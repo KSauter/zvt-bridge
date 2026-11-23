@@ -2,7 +2,8 @@
 # Install:
 #   sudo install -m 755 zvt-bridge /usr/local/bin/
 #   sudo install -m 644 zvt-bridge.service /etc/systemd/system/
-#   adjust ExecStart (serial port, terminal address), then:
+#   sudo install -d /etc/zvt-bridge && sudo install -m 644 zvt-bridge.conf /etc/zvt-bridge/
+#   edit /etc/zvt-bridge/zvt-bridge.conf (serial port, terminal address), then:
 #   sudo systemctl daemon-reload && sudo systemctl enable --now zvt-bridge
 [Unit]
 Description=ZVT Bridge (serial ECR <-> TCP payment terminal)
@@ -10,7 +11,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/zvt-bridge run -serial /dev/ttyUSB0 -terminal 192.168.1.50 -log /var/log/zvt-bridge/zvt-bridge.log
+ExecStart=/usr/local/bin/zvt-bridge run -config /etc/zvt-bridge/zvt-bridge.conf
 Restart=always
 RestartSec=5
 DynamicUser=yes

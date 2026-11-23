@@ -23,6 +23,7 @@ type setupConfig struct {
 	ComPort       string // wanted COM name of the emulated device; "" or "auto" lets Windows choose
 	InstallDir    string
 	LogFile       string
+	ConfigFile    string
 	UsbipSetup    string
 	DownloadUsbip bool
 	Yes           bool
@@ -38,6 +39,7 @@ func newSetupFlags(name string) (*flag.FlagSet, *setupConfig) {
 	fs.StringVar(&c.ComPort, "com", "", "usb mode: COM port name the device shall get, e.g. COM7 (default: assigned by Windows)")
 	fs.StringVar(&c.InstallDir, "install-dir", defaultInstallDir(), "where zvt-bridge.exe is installed")
 	fs.StringVar(&c.LogFile, "log", defaultLogPath(), "log file of the service")
+	fs.StringVar(&c.ConfigFile, "config", defaultConfigPath(), "configuration file the service reads at every start")
 	fs.StringVar(&c.UsbipSetup, "usbip-setup", "", "usb mode: path to the usbip-win2 installer (USBip-<version>-x64.exe)")
 	fs.BoolVar(&c.DownloadUsbip, "download-usbip", false, "usb mode: download the pinned usbip-win2 release when it is not installed")
 	fs.BoolVar(&c.Yes, "yes", false, "do not ask anything, take the defaults and the given flags")
@@ -54,7 +56,7 @@ func newUninstallFlags(name string) (*flag.FlagSet, *uninstallConfig) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	c := &uninstallConfig{}
 	fs.BoolVar(&c.RemoveUsbip, "remove-usbip", false, "also uninstall usbip-win2")
-	fs.BoolVar(&c.KeepLogs, "keep-logs", false, "keep the log directory")
+	fs.BoolVar(&c.KeepLogs, "keep-logs", false, "keep the configuration and log files")
 	fs.BoolVar(&c.Yes, "yes", false, "do not ask for confirmation")
 	return fs, c
 }

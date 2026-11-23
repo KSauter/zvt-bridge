@@ -9,6 +9,7 @@ import (
 
 func defaultInstallDir() string { return "/opt/zvt-bridge" }
 func defaultLogPath() string    { return "/var/log/zvt-bridge/zvt-bridge.log" }
+func defaultConfigPath() string { return "/etc/zvt-bridge/zvt-bridge.conf" }
 
 func runSetup(*setupConfig, *prompter) int {
 	fmt.Fprintln(os.Stderr, "the setup wizard is only available on Windows; on Linux see linux/zvt-bridge.service")

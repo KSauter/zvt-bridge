@@ -98,7 +98,10 @@ plus archives with all binaries for Windows and Linux.
 
 ```
 zvt-bridge [run] -terminal 192.168.10.50 (-usb | -serial COM7) [options]
+zvt-bridge [run] -config zvt-bridge.conf
 
+  -config FILE  read options from a file ("option = value" per line, # comments);
+                options given on the command line override it
   -terminal     terminal address host[:port], default port 20007 (required)
   -usb          emulate a USB serial device over USB/IP
     -usb-listen 127.0.0.1:3240   USB/IP server address
@@ -114,6 +117,10 @@ zvt-bridge [run] -terminal 192.168.10.50 (-usb | -serial COM7) [options]
   -log FILE         log file (5 MB, 3 rotations) in addition to the console
   -v                log every byte
 
+zvt-bridge setup       Windows: setup wizard (default when started without arguments)
+zvt-bridge uninstall   Windows: remove service, program files and Settings > Apps entry
+zvt-bridge install     Windows: register the service with the given options (or -config FILE)
+zvt-bridge start | stop | restart | status | remove
 zvt-bridge list        show serial ports
 zvt-bridge version
 ```
@@ -135,15 +142,16 @@ Download `zvt-bridge-setup_<version>_windows_amd64.exe` from the
 It asks for administrator rights and then walks through four steps in a console
 window:
 
-1. **Payment terminal** – IP address or host name (default port 20007); the
-   connection is tested right away.
+1. **Payment terminal** – IP address or host name and TCP port (default
+   20007); the connection is tested right away.
 2. **Serial port** – the emulated USB serial port (recommended) or an existing
    COM port. For the emulated port the wizard offers to download usbip-win2
    (pinned release, SHA-256 verified; or it uses `USBip-*-x64.exe` next to the
    setup) and asks whether the port shall get a fixed COM number (e.g. `COM7`)
    or the next free one.
 3. **Program files** – install directory (default `%ProgramFiles%\zvt-bridge`)
-   and log file.
+   and log file. All settings are written to
+   `%ProgramData%\zvt-bridge\zvt-bridge.conf`.
 4. **Summary** – confirm.
 
 The setup then installs usbip-win2 silently if needed, copies the program (and
@@ -151,8 +159,14 @@ an `uninstall.exe`) into the install directory, registers the Windows service
 **ZvtBridge** (automatic start before login, restart after 5/10/30 s on
 failure, event log source), lists the program under *Settings > Apps*, waits
 for Windows to create the COM port, renames it if a fixed number was chosen and
-prints the result. The downloaded setup file can be deleted afterwards;
-running it again reconfigures an existing installation.
+prints the result. The downloaded setup file can be deleted afterwards.
+
+**Changing settings later** (new terminal IP, port, …): edit
+`%ProgramData%\zvt-bridge\zvt-bridge.conf` – a commented `option = value`
+file the service reads at every start – and run `zvt-bridge.exe restart`
+from the install directory. Running the setup again works as well; it offers
+the current values as defaults. The COM number is a property of the device,
+not of the file: change it through the setup or Device Manager.
 
 Windows SmartScreen warns about unsigned downloads ("More info" → "Run
 anyway") until the releases are code-signed.
@@ -173,7 +187,7 @@ the `SerialAllowAllPortsForUrls` policy. Do not run Zadig or similar tools on
 the device: replacing `usbser.sys` removes the COM port.
 
 Logs: `%ProgramData%\zvt-bridge\zvt-bridge.log`. Service control:
-`zvt-bridge.exe status | stop | start`. The PowerShell scripts in `windows/`
+`zvt-bridge.exe status | stop | start | restart`. The PowerShell scripts in `windows/`
 do the same as the wizard without questions and additionally support the
 com0com pair driver (`-Mode com0com`, blocked while Memory Integrity is on).
 
@@ -185,7 +199,8 @@ be reachable from the POS computer: `Test-NetConnection <ip> -Port 20007`.
 ```sh
 sudo install -m 755 dist/zvt-bridge /usr/local/bin/
 sudo install -m 644 linux/zvt-bridge.service /etc/systemd/system/
-sudo systemctl edit zvt-bridge      # adjust ExecStart: -serial /dev/ttyUSB0 -terminal <ip>
+sudo install -d /etc/zvt-bridge && sudo install -m 644 linux/zvt-bridge.conf /etc/zvt-bridge/
+sudoedit /etc/zvt-bridge/zvt-bridge.conf    # serial port, terminal address
 sudo systemctl enable --now zvt-bridge
 ```
 
