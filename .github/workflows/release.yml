@@ -25,3 +25,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Release the tag that triggered the workflow. Without this goreleaser
+          # picks the highest tag on the commit by git version sort, which ranks
+          # v0.1.0-beta.3 above v0.1.0 and republishes the pre-release.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
