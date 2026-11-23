@@ -1,0 +1,68 @@
+# goreleaser v2
+#   check:          goreleaser check
+#   local build:    goreleaser release --snapshot --clean --skip=publish
+#   real release:   git tag v0.1.0 && goreleaser release --clean   (needs GITHUB_TOKEN)
+version: 2
+project_name: zvt-bridge
+
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./...
+    - go test ./...
+
+builds:
+  - id: zvt-bridge
+    main: ./cmd/zvt-bridge
+    binary: zvt-bridge
+    env: [CGO_ENABLED=0]
+    goos: [windows, linux]
+    goarch: [amd64, arm64, arm]
+    goarm: ["6", "7"]
+    ignore:
+      - goos: windows
+        goarch: arm
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
+  - id: fakept
+    main: ./cmd/fakept
+    binary: fakept
+    env: [CGO_ENABLED=0]
+    goos: [windows, linux]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w"]
+  - id: fakeecr
+    main: ./cmd/fakeecr
+    binary: fakeecr
+    env: [CGO_ENABLED=0]
+    goos: [windows, linux]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w"]
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
+    files:
+      - README.md
+      - LICENSE
+      - windows/*
+      - linux/*
+
+checksum:
+  name_template: checksums.txt
+
+# No git remote yet. Once the repository lives on GitHub, delete this block so
+# `goreleaser release --clean` uploads the archives to a GitHub release.
+release:
+  disable: true
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-dev.{{ .ShortCommit }}"
+
+changelog:
+  use: git
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]

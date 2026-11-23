@@ -1,0 +1,14 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Build output
+dist/
+*.exe
+*.log
+
+# goreleaser / Go
+.goreleaser/
+go.work
+go.work.sum
