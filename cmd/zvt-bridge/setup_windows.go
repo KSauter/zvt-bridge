@@ -414,22 +414,11 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 		p.printf("Waiting for Windows to create the COM port ... ")
 		port, err := waitForComPort(30*time.Second, "")
 		if err != nil {
-			p.printf("\n%v\nCheck %s and Device Manager (Ports: \"USB Serial Device\";\nUSB controllers: \"USBip Emulated Host Controller\").\n", err, cfg.LogFile)
+			p.printf("\n%v\nCheck %s and Device Manager (Ports: \"USB Serial Device\";\nUSB controllers: \"USBip Emulated Host Controller\").\nIf an old or broken device is in the way, \"%s\" repair rebuilds the port.\n", err, cfg.LogFile, exe)
 			return errors.New("the COM port did not appear")
 		}
 		p.printf("%s\n", port.Name)
-		if cfg.ComPort != "" && !strings.EqualFold(port.Name, cfg.ComPort) {
-			p.printf("Renaming %s to %s ... ", port.Name, cfg.ComPort)
-			if err := renameComPort(port, cfg.ComPort); err != nil {
-				p.printf("failed: %v\nThe port keeps the name %s. It can be changed in Device Manager > Ports >\nProperties > Port Settings > Advanced.\n", err, port.Name)
-			} else if renamed, err := waitForComPort(20*time.Second, cfg.ComPort); err != nil {
-				p.printf("the port has not come back as %s yet (%v)\n", cfg.ComPort, err)
-				port.Name = cfg.ComPort
-			} else {
-				port = renamed
-				p.printf("ok\n")
-			}
-		}
+		port = assignComName(p, port, cfg.ComPort)
 		posPort = port.Name
 	}
 

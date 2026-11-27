@@ -6,6 +6,7 @@
 //	zvt-bridge                                  Windows: interactive setup (also by double-click)
 //	zvt-bridge setup [-terminal … -yes …]       Windows: setup wizard, unattended with -yes
 //	zvt-bridge uninstall                        Windows: remove everything again
+//	zvt-bridge repair                           Windows: rebuild a broken emulated COM port
 //	zvt-bridge [run] -serial COM7 -terminal 192.168.1.50 [options]
 //	zvt-bridge run -config zvt-bridge.conf        same, options from a file
 //	zvt-bridge list                             show serial ports
@@ -183,6 +184,8 @@ Commands:
              service, and shows the COM port (default when started without arguments;
              -yes makes it unattended, see 'zvt-bridge setup -h')
   uninstall  Windows: remove the service, the program files and the Settings > Apps entry
+  repair     Windows: rebuild the emulated COM port when Windows no longer sets it up
+             (phantom COM port, "Unknown USB Device"); see 'zvt-bridge repair -h'
   run        run the bridge in the foreground
   list       show serial ports
   install    install and start the Windows service (same options as run; with -config
@@ -228,6 +231,8 @@ func main() {
 		os.Exit(cmdSetup(args))
 	case "uninstall":
 		os.Exit(cmdUninstall(args))
+	case "repair":
+		os.Exit(cmdRepair(args))
 	case "list":
 		os.Exit(cmdList())
 	case "version":

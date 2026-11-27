@@ -20,3 +20,8 @@ func runUninstall(*uninstallConfig, *prompter) int {
 	fmt.Fprintln(os.Stderr, "uninstall is only available on Windows; on Linux disable the systemd unit")
 	return 2
 }
+
+func runRepair(*repairConfig, *prompter) int {
+	fmt.Fprintln(os.Stderr, "repair is only available on Windows")
+	return 2
+}

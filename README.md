@@ -123,6 +123,7 @@ zvt-bridge [run] -config zvt-bridge.conf
 
 zvt-bridge setup       Windows: setup wizard (default when started without arguments)
 zvt-bridge uninstall   Windows: remove service, program files and Settings > Apps entry
+zvt-bridge repair      Windows: rebuild a broken emulated COM port (see below)
 zvt-bridge install     Windows: register the service with the given options (or -config FILE)
 zvt-bridge start | stop | restart | status | remove
 zvt-bridge list        show serial ports
@@ -172,6 +173,20 @@ file the service reads at every start – and run `zvt-bridge.exe restart`
 from the install directory. Running the setup again works as well; it offers
 the current values as defaults. The COM number is a property of the device,
 not of the file: change it through the setup or Device Manager.
+
+**COM port gone or "Unknown USB Device"?** If Windows no longer sets up the
+emulated device (the COM port is greyed out in Device Manager, an "Unknown USB
+Device (Device Descriptor Request Failed)" sits on the USBip controller), run
+
+```powershell
+& "$env:ProgramFiles\zvt-bridge\zvt-bridge.exe" repair
+```
+
+It stops the service, unplugs all USB/IP devices, removes every device entry of
+the emulated device (phantoms included) and its cached USB settings, starts the
+service again and gives the new port its old COM name. `-reinstall-usbip`
+additionally reinstalls usbip-win2, `-com COM8` sets another name, `-yes` skips
+the questions. If it still fails, restart Windows and run it once more.
 
 Windows SmartScreen warns about unsigned downloads ("More info" → "Run
 anyway") until the releases are code-signed.

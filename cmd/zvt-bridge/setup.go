@@ -61,6 +61,37 @@ func newUninstallFlags(name string) (*flag.FlagSet, *uninstallConfig) {
 	return fs, c
 }
 
+// repairConfig controls "repair": rebuild the emulated USB serial port when
+// Windows no longer sets it up (phantom COM port, "Unknown USB Device").
+type repairConfig struct {
+	ComPort        string
+	ConfigFile     string
+	ReinstallUsbip bool
+	UsbipSetup     string
+	DownloadUsbip  bool
+	Yes            bool
+}
+
+func newRepairFlags(name string) (*flag.FlagSet, *repairConfig) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	c := &repairConfig{}
+	fs.StringVar(&c.ComPort, "com", "", "COM port name the device shall get afterwards (default: the name it had, 'auto' = chosen by Windows)")
+	fs.StringVar(&c.ConfigFile, "config", defaultConfigPath(), "configuration file of the service")
+	fs.BoolVar(&c.ReinstallUsbip, "reinstall-usbip", false, "also uninstall and reinstall usbip-win2")
+	fs.StringVar(&c.UsbipSetup, "usbip-setup", "", "path to the usbip-win2 installer for -reinstall-usbip")
+	fs.BoolVar(&c.DownloadUsbip, "download-usbip", false, "download the pinned usbip-win2 release for -reinstall-usbip")
+	fs.BoolVar(&c.Yes, "yes", false, "do not ask anything")
+	return fs, c
+}
+
+func cmdRepair(args []string) int {
+	fs, cfg := newRepairFlags("repair")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	return runRepair(cfg, newPrompter(os.Stdin, os.Stdout, cfg.Yes))
+}
+
 func cmdSetup(args []string) int {
 	fs, cfg := newSetupFlags("setup")
 	if err := fs.Parse(args); err != nil {
