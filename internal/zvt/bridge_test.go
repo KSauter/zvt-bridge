@@ -157,8 +157,18 @@ func TestStrayByteAnsweredWithNAK(t *testing.T) {
 		Logf:       t.Logf,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _ = b.Run(ctx) }()
+	done := make(chan struct{})
+	go func() { _ = b.Run(ctx); close(done) }()
+	// Run logs through t.Logf; it must have returned before the test ends.
+	defer func() {
+		cancel()
+		ecrSide.Close()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("Run did not return")
+		}
+	}()
 
 	var d Decoder
 	if _, err := ecrSide.Write([]byte{0x00}); err != nil {
