@@ -27,6 +27,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -77,7 +78,7 @@ func newRunFlags(name string) (*flag.FlagSet, *runConfig) {
 	fs.IntVar(&c.Retries, "retries", 3, "send attempts towards the ECR")
 	fs.DurationVar(&c.DialTimeout, "dial-timeout", 5*time.Second, "connection timeout towards the terminal")
 	fs.StringVar(&c.LogFile, "log", "", "log file (in addition to the console; as a service defaults to ProgramData)")
-	fs.BoolVar(&c.Verbose, "v", false, "log every byte")
+	fs.BoolVar(&c.Verbose, "v", false, "log every byte; with -usb also every USB control request")
 	fs.BoolVar(&c.USB, "usb", false, "emulate a USB serial device over USB/IP instead of opening -serial")
 	fs.StringVar(&c.USBListen, "usb-listen", "127.0.0.1:3240", "USB/IP server address the host controller connects to")
 	fs.StringVar(&c.USBBusID, "usb-busid", "1-1", "USB/IP bus id of the emulated device")
@@ -341,19 +342,52 @@ func runUSB(ctx context.Context, cfg *runConfig) error {
 	dev := &usbip.ACM{
 		VendorID: uint16(vid), ProductID: uint16(pid),
 		Manufacturer: "zvt-bridge", Product: "zvt-bridge virtual serial port", Serial: cfg.USBSerial,
-		BusID: cfg.USBBusID, Logf: log.Printf,
+		BusID: cfg.USBBusID, Logf: log.Printf, Trace: cfg.Verbose,
 	}
-	srv := &usbip.Server{Addr: cfg.USBListen, Device: dev, Logf: log.Printf}
+	// released fires when the host controller lets go of the device.
+	released := make(chan struct{}, 1)
+	var wasAttached atomic.Bool
+	dev.OnState = func(st usbip.ACMState) {
+		if wasAttached.Swap(st.Attached) && !st.Attached {
+			select {
+			case released <- struct{}{}:
+			default:
+			}
+		}
+	}
+	srv := &usbip.Server{Addr: cfg.USBListen, Device: dev, Logf: log.Printf, Trace: cfg.Verbose}
 	ln, err := net.Listen("tcp", cfg.USBListen)
 	if err != nil {
 		return fmt.Errorf("USB/IP server: %w", err)
 	}
 	log.Printf("ECR: USB serial device %04X:%04X serial %q, USB/IP server on %s, bus id %s", vid, pid, cfg.USBSerial, ln.Addr(), cfg.USBBusID)
+	// The server outlives ctx until the device is unplugged: closing the
+	// USB/IP connection first looks like a pulled cable to the host controller.
+	srvCtx, stopSrv := context.WithCancel(context.Background())
+	defer stopSrv()
 	srvErr := make(chan error, 1)
-	go func() { srvErr <- srv.Serve(ctx, ln) }()
+	go func() { srvErr <- srv.Serve(srvCtx, ln) }()
+	// attachLoop unplugs the device when its context ends; wait for that
+	// before returning, or the process exits first and leaves a dead device
+	// on the virtual hub.
+	attachCtx, stopAttach := context.WithCancel(ctx)
+	attachDone := make(chan struct{})
 	if cfg.USBAttach {
-		go attachLoop(ctx, cfg, ln.Addr().String())
+		go func() {
+			defer close(attachDone)
+			attachLoop(attachCtx, cfg, ln.Addr().String(), released, func() bool { return dev.State().Attached })
+		}()
+	} else {
+		close(attachDone)
 	}
+	defer func() {
+		stopAttach()
+		select {
+		case <-attachDone:
+		case <-time.After(15 * time.Second):
+			log.Printf("usbip detach: no answer from usbip.exe, giving up")
+		}
+	}()
 	b := newBridge(dev, cfg)
 	runErr := make(chan error, 1)
 	go func() { runErr <- b.Run(ctx) }()

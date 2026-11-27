@@ -119,7 +119,7 @@ zvt-bridge [run] -config zvt-bridge.conf
   -retries 3        send attempts towards the ECR
   -dial-timeout 5s  connection timeout towards the terminal
   -log FILE         log file (5 MB, 3 rotations) in addition to the console
-  -v                log every byte
+  -v                log every byte; with -usb also every USB control request
 
 zvt-bridge setup       Windows: setup wizard (default when started without arguments)
 zvt-bridge uninstall   Windows: remove service, program files and Settings > Apps entry
@@ -151,7 +151,8 @@ window:
 2. **Serial port** – the emulated USB serial port (recommended) or an existing
    COM port. For the emulated port the wizard offers to download usbip-win2
    (pinned release, SHA-256 verified; or it uses `USBip-*-x64.exe` next to the
-   setup) and asks whether the port shall get a fixed COM number (e.g. `COM7`)
+   setup) and asks whether the port shall get a fixed COM number (e.g. `COM8`;
+   check that it is free, Intel AMT often takes `COM7` for Serial-over-LAN)
    or the next free one.
 3. **Program files** – install directory (default `%ProgramFiles%\zvt-bridge`)
    and log file. All settings are written to

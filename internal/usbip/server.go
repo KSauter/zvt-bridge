@@ -60,6 +60,7 @@ type Server struct {
 	Addr   string // e.g. 127.0.0.1:3240
 	Device Device
 	Logf   func(format string, args ...any)
+	Trace  bool // log unlinks and unsupported transfers
 
 	mu       sync.Mutex
 	imported *conn
@@ -198,6 +199,9 @@ func (s *Server) urbLoop(c *conn) error {
 			if s.Device.Unlink(h.UnlinkSeq) {
 				status = StatusECONNRESET
 			}
+			if s.Trace {
+				s.logf("usbip: unlink of seq %d (pending: %v)", h.UnlinkSeq, status == StatusECONNRESET)
+			}
 			c.send(encodeRetUnlink(h.Seq, status))
 		}
 	}
@@ -218,6 +222,9 @@ func (s *Server) submit(c *conn, h *header) error {
 	if h.NumPackets > 0 && h.NumPackets != -1 {
 		if _, err := io.CopyN(io.Discard, c.nc, int64(h.NumPackets)*16); err != nil {
 			return err
+		}
+		if s.Trace {
+			s.logf("usbip: isochronous transfer on endpoint %d refused", h.EP)
 		}
 		c.send(encodeRetSubmit(h.Seq, StatusEPIPE, nil))
 		return nil

@@ -48,6 +48,8 @@ type ACM struct {
 	Logf         func(format string, args ...any)
 	// OnState is called when Attached/Configured/Open/DTR change (optional).
 	OnState func(ACMState)
+	// Trace logs every control request with its answer (enumeration debugging).
+	Trace bool
 
 	mu         sync.Mutex
 	cond       *sync.Cond
@@ -153,6 +155,21 @@ func stringDescriptor(s string) []byte {
 
 // Control implements Device.
 func (a *ACM) Control(setup [8]byte, data []byte) ([]byte, error) {
+	reply, err := a.control(setup, data)
+	if a.Trace {
+		switch {
+		case err != nil:
+			a.logf("usb: control % X → STALL", setup)
+		case setup[0]&0x80 != 0:
+			a.logf("usb: control % X → %d B % X", setup, len(reply), reply)
+		default:
+			a.logf("usb: control % X (+%d B data) → ok", setup, len(data))
+		}
+	}
+	return reply, err
+}
+
+func (a *ACM) control(setup [8]byte, data []byte) ([]byte, error) {
 	a.init()
 	reqType, req := setup[0], setup[1]
 	value := binary.LittleEndian.Uint16(setup[2:])

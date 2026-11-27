@@ -11,7 +11,7 @@ import (
 const defaultUsbipExe = "usbip"
 
 // attachLoop only prints how to attach on Linux; attaching needs root there.
-func attachLoop(ctx context.Context, cfg *runConfig, listenAddr string) {
+func attachLoop(ctx context.Context, cfg *runConfig, listenAddr string, _ <-chan struct{}, _ func() bool) {
 	host, port, _ := net.SplitHostPort(listenAddr)
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "127.0.0.1"
