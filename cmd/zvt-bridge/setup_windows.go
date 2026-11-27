@@ -362,7 +362,7 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 		usbipExe = defaultUsbipExe
 	}
 	if usb {
-		present, problem, err := usbipController()
+		present, problem, err := waitForUsbipController(20 * time.Second)
 		switch {
 		case err != nil:
 			p.printf("warning: could not check the usbip-win2 host controller: %v\n", err)

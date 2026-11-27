@@ -122,10 +122,12 @@ func installUsbip(p *prompter, setupPath string) error {
 }
 
 // usbipController reports whether the virtual USB host controller of
-// usbip-win2 is present and its Configuration Manager problem code.
+// usbip-win2 is present and its Configuration Manager problem code. Its
+// instance id is a generic ROOT\USB\nnnn, so it is recognised by its hardware
+// id (ROOT\USBIP_WIN2\...) or, failing that, by its description.
 func usbipController() (present bool, problem uint32, err error) {
-	err = forEachDevice(nil, "ROOT", func(_ windows.DevInfo, data *windows.DevInfoData, id string) error {
-		if !strings.Contains(strings.ToUpper(id), "USBIP_WIN2") {
+	err = forEachDevice(nil, "ROOT", func(set windows.DevInfo, data *windows.DevInfoData, _ string) error {
+		if !isUsbipController(set, data) {
 			return nil
 		}
 		present = true
@@ -134,6 +136,41 @@ func usbipController() (present bool, problem uint32, err error) {
 		return nil
 	})
 	return present, problem, err
+}
+
+func isUsbipController(set windows.DevInfo, data *windows.DevInfoData) bool {
+	if v, err := set.DeviceRegistryProperty(data, windows.SPDRP_HARDWAREID); err == nil {
+		ids, _ := v.([]string)
+		for _, id := range ids {
+			if strings.Contains(strings.ToUpper(id), "USBIP_WIN2") {
+				return true
+			}
+		}
+	}
+	for _, prop := range []windows.SPDRP{windows.SPDRP_FRIENDLYNAME, windows.SPDRP_DEVICEDESC} {
+		if v, err := set.DeviceRegistryProperty(data, prop); err == nil {
+			name, _ := v.(string)
+			name = strings.ToUpper(name)
+			if strings.Contains(name, "USBIP") && strings.Contains(name, "HOST CONTROLLER") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// waitForUsbipController polls until the host controller is present and
+// started or the timeout ends; right after the installation Windows needs a
+// few seconds to set it up.
+func waitForUsbipController(timeout time.Duration) (present bool, problem uint32, err error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		present, problem, err = usbipController()
+		if (err == nil && present && problem == 0) || time.Now().After(deadline) {
+			return present, problem, err
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 // uninstallUsbip detaches all USB/IP devices and runs the usbip-win2 uninstaller.
