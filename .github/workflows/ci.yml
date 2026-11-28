@@ -45,17 +45,65 @@ jobs:
         with:
           version: "~> v2"
           args: release --snapshot --clean --skip=publish
-      - name: Collect the Windows setup
-        # goreleaser renames the bare binary only when uploading a release
-        run: cp dist/zvt-bridge_windows_amd64*/zvt-bridge.exe dist/zvt-bridge-setup_snapshot_windows_amd64.exe
       - uses: actions/upload-artifact@v7
         with:
           name: zvt-bridge-snapshot-windows-amd64
-          path: |
-            dist/zvt-bridge-setup_snapshot_windows_amd64.exe
-            dist/*_windows_amd64.zip
+          path: dist/*_windows_amd64.zip
           if-no-files-found: error
           retention-days: 14
+
+  # Builds the Inno Setup installer and runs it for real on the Windows runner:
+  # silent install against fakept, a ZVT exchange through the emulated COM port
+  # with fakeecr, then the uninstaller.
+  installer:
+    name: Windows installer (build and install)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build zvt-bridge.exe with resources, fakept, fakeecr
+        run: |
+          go tool go-winres make --in winres/winres.json --out cmd/zvt-bridge/rsrc --arch amd64 --product-version 0.0.0 --file-version 0.0.0
+          go build -ldflags "-s -w -X main.version=0.0.0-ci" -o dist/zvt-bridge.exe ./cmd/zvt-bridge
+          go build -o dist/fakept.exe ./cmd/fakept
+          go build -o dist/fakeecr.exe ./cmd/fakeecr
+      - name: Build the installer
+        run: .\installer\build.ps1 -Version 0.0.0-ci -Exe dist\zvt-bridge.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: zvt-bridge-setup-ci
+          path: dist/zvt-bridge-setup_0.0.0-ci_windows_amd64.exe
+          retention-days: 14
+      - name: Install silently and talk ZVT through the COM port
+        run: |
+          $pt = Start-Process dist\fakept.exe -ArgumentList '-listen','127.0.0.1:20007' -PassThru -NoNewWindow
+          $p = Start-Process dist\zvt-bridge-setup_0.0.0-ci_windows_amd64.exe -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TERMINAL=127.0.0.1','/LOG=dist\install.log'
+          Write-Host "installer exit code: $($p.ExitCode)"
+          Get-Content C:\ProgramData\zvt-bridge\setup.log -ErrorAction SilentlyContinue
+          Get-Service ZvtBridge
+          Get-PnpDevice -Class Ports -ErrorAction SilentlyContinue | Format-Table Status, FriendlyName, InstanceId -Auto
+          Get-Content C:\ProgramData\zvt-bridge\zvt-bridge.log -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { throw "installer failed" }
+          $com = (Get-PnpDevice -Class Ports -PresentOnly | Where-Object InstanceId -like '*VID_1209*').FriendlyName -replace '.*\((COM\d+)\).*', '$1'
+          if (-not $com) { throw "no COM port of the emulated device" }
+          Write-Host "COM port: $com"
+          dist\fakeecr.exe -serial $com -steps registration,status
+          if ($LASTEXITCODE -ne 0) { throw "ZVT exchange through $com failed" }
+          Stop-Process $pt
+      - name: Uninstall silently
+        if: always()
+        run: |
+          $u = Get-Item "C:\Program Files\zvt-bridge\unins*.exe" -ErrorAction SilentlyContinue
+          if (-not $u) { Write-Host "not installed"; exit 0 }
+          Start-Process $u.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          if (Get-Service ZvtBridge -ErrorAction SilentlyContinue) { throw "service still installed" }
+          if (Test-Path "C:\Program Files\zvt-bridge\zvt-bridge.exe") { throw "program files left behind" }
+      - name: Installer logs
+        if: failure()
+        run: Get-Content dist\install.log -ErrorAction SilentlyContinue
 
   e2e:
     name: End-to-end (Linux, PTY and USB/IP)

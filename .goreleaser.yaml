@@ -10,6 +10,8 @@ before:
     - go mod tidy
     - go vet ./...
     - go test ./...
+    # Icon, version information and manifest of zvt-bridge.exe
+    - go tool go-winres make --in winres/winres.json --out cmd/zvt-bridge/rsrc --arch amd64,arm64 --product-version {{ .Major }}.{{ .Minor }}.{{ .Patch }} --file-version {{ .Major }}.{{ .Minor }}.{{ .Patch }}
 
 builds:
   - id: zvt-bridge
@@ -47,15 +49,8 @@ builds:
     ldflags: ["-s -w"]
 
 archives:
-  # Windows: the bare program as zvt-bridge-setup_<version>_windows_<arch>.exe.
-  # Started by double-click it runs the setup wizard and installs itself.
-  - id: setup
-    ids: [zvt-bridge]
-    formats: [none]
-    format_overrides:
-      - goos: windows
-        formats: [binary]
-    name_template: "{{ .ProjectName }}-setup_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  # The Windows installer (Inno Setup) is built from the windows_amd64 zip by
+  # the "installer" job in .github/workflows/release.yml.
   - id: default
     ids: [zvt-bridge, fakept, fakeecr]
     formats: [tar.gz]

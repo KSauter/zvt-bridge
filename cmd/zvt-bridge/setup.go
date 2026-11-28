@@ -27,6 +27,8 @@ type setupConfig struct {
 	UsbipSetup    string
 	DownloadUsbip bool
 	Yes           bool
+	Installer     bool   // called by the installer package, which owns the program files
+	ResultFile    string // receives the COM port name for the cash register software
 }
 
 func newSetupFlags(name string) (*flag.FlagSet, *setupConfig) {
@@ -43,6 +45,8 @@ func newSetupFlags(name string) (*flag.FlagSet, *setupConfig) {
 	fs.StringVar(&c.UsbipSetup, "usbip-setup", "", "usb mode: path to the usbip-win2 installer (USBip-<version>-x64.exe)")
 	fs.BoolVar(&c.DownloadUsbip, "download-usbip", false, "usb mode: download the pinned usbip-win2 release when it is not installed")
 	fs.BoolVar(&c.Yes, "yes", false, "do not ask anything, take the defaults and the given flags")
+	fs.BoolVar(&c.Installer, "installer", false, "called by the installer: leave program files and the Settings > Apps entry alone")
+	fs.StringVar(&c.ResultFile, "result", "", "write the COM port name for the cash register software to this file")
 	return fs, c
 }
 
@@ -50,6 +54,7 @@ type uninstallConfig struct {
 	RemoveUsbip bool
 	KeepLogs    bool
 	Yes         bool
+	Installer   bool
 }
 
 func newUninstallFlags(name string) (*flag.FlagSet, *uninstallConfig) {
@@ -58,6 +63,7 @@ func newUninstallFlags(name string) (*flag.FlagSet, *uninstallConfig) {
 	fs.BoolVar(&c.RemoveUsbip, "remove-usbip", false, "also uninstall usbip-win2")
 	fs.BoolVar(&c.KeepLogs, "keep-logs", false, "keep the configuration and log files")
 	fs.BoolVar(&c.Yes, "yes", false, "do not ask for confirmation")
+	fs.BoolVar(&c.Installer, "installer", false, "called by the installer: only remove the service (and usbip-win2, logs), not the program files")
 	return fs, c
 }
 

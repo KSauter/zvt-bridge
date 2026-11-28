@@ -1,0 +1,58 @@
+{
+  "RT_GROUP_ICON": {
+    "APP": {
+      "0000": ["icon.png"]
+    }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "identity": {
+          "name": "zvt-bridge",
+          "version": ""
+        },
+        "description": "ZVT serial to TCP bridge",
+        "minimum-os": "win10",
+        "execution-level": "as invoker",
+        "ui-access": false,
+        "auto-elevate": false,
+        "dpi-awareness": "system",
+        "disable-theming": false,
+        "disable-window-filtering": false,
+        "high-resolution-scrolling-aware": false,
+        "ultra-high-resolution-scrolling-aware": false,
+        "long-path-aware": true,
+        "printer-driver-isolation": false,
+        "gdi-scaling": false,
+        "segment-heap": false,
+        "use-common-controls-v6": false
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "fixed": {
+          "file_version": "0.0.0.0",
+          "product_version": "0.0.0.0"
+        },
+        "info": {
+          "0409": {
+            "Comments": "https://github.com/KSauter/zvt-bridge",
+            "CompanyName": "Kevin Sauter",
+            "FileDescription": "ZVT Bridge: serial ZVT cash register to ZVT over TCP payment terminal",
+            "FileVersion": "",
+            "InternalName": "zvt-bridge",
+            "LegalCopyright": "MIT License",
+            "LegalTrademarks": "",
+            "OriginalFilename": "zvt-bridge.exe",
+            "PrivateBuild": "",
+            "ProductName": "ZVT Bridge",
+            "ProductVersion": "",
+            "SpecialBuild": ""
+          }
+        }
+      }
+    }
+  }
+}

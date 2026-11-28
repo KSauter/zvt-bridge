@@ -29,3 +29,25 @@ jobs:
           # picks the highest tag on the commit by git version sort, which ranks
           # v0.1.0-beta.3 above v0.1.0 and republishes the pre-release.
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+
+  # Inno Setup only runs on Windows. The installer packages the zvt-bridge.exe
+  # that goreleaser has just published, so zip and installer hold the same build.
+  installer:
+    needs: goreleaser
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the Windows build of this release
+        run: |
+          gh release download "$env:GITHUB_REF_NAME" --pattern "zvt-bridge_*_windows_amd64.zip" --dir dist
+          Expand-Archive (Get-Item dist\zvt-bridge_*_windows_amd64.zip) -DestinationPath dist\release
+      - name: Build the installer
+        run: .\installer\build.ps1 -Version $env:GITHUB_REF_NAME.TrimStart('v') -Exe dist\release\zvt-bridge.exe
+      - name: Attach it to the release
+        run: |
+          $setup = Get-Item dist\zvt-bridge-setup_*_windows_amd64.exe
+          $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($setup.Name)" | Set-Content -NoNewline "$($setup.FullName).sha256"
+          gh release upload "$env:GITHUB_REF_NAME" $setup.FullName "$($setup.FullName).sha256" --clobber

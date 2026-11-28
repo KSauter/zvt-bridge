@@ -74,6 +74,8 @@ gives them a COM port that leads to the terminal's LAN interface.
 | `cmd/fakeecr` | cash register simulator (ZVT over serial) for tests |
 | `internal/zvt` | framing, CRC, decoder state machine, APDU reader, bridge logic |
 | `internal/usbip` | USB/IP server and the emulated CDC-ACM device |
+| `installer/` | Inno Setup script of the Windows installer and its build script |
+| `winres/` | icon, version information and manifest of `zvt-bridge.exe` (go-winres) |
 | `windows/install.ps1`, `windows/uninstall.ps1` | scripted alternative to the setup wizard, also covers com0com |
 | `linux/zvt-bridge.service` | systemd unit |
 | `test/e2e-linux.sh` | end-to-end test with a PTY pair (socat) |
@@ -87,7 +89,7 @@ automatically via `GOTOOLCHAIN=auto`). No CGO.
 ```sh
 make test            # vet (linux + windows), unit tests
 make build           # dist/zvt-bridge, dist/fakept, dist/fakeecr (host OS)
-make build-windows   # dist/*.exe (windows/amd64)
+make build-windows   # dist/*.exe (windows/amd64), with icon and version resource
 make e2e             # Linux end-to-end test over a PTY pair, needs socat
 make e2e-usbip       # Linux end-to-end test over USB/IP, needs usbip + root
 make snapshot        # goreleaser: archives for windows/linux, amd64/arm64/arm
@@ -95,8 +97,16 @@ make snapshot        # goreleaser: archives for windows/linux, amd64/arm64/arm
 
 Releases are built by [goreleaser](https://goreleaser.com) in GitHub Actions
 when a `v*` tag is pushed (`.github/workflows/release.yml`). Each release has
-`zvt-bridge-setup_<version>_windows_<arch>.exe` (the Windows setup, see below)
-plus archives with all binaries for Windows and Linux.
+the Windows installer `zvt-bridge-setup_<version>_windows_amd64.exe` (see below)
+plus archives with all binaries for Windows and Linux. The installer is built
+on Windows with [Inno Setup](https://jrsoftware.org/isinfo.php):
+
+```powershell
+.\installer\build.ps1 -Version 1.1.0 -Exe dist\zvt-bridge.exe   # → dist\zvt-bridge-setup_1.1.0_windows_amd64.exe
+```
+
+The CI installs it silently on a Windows runner and talks ZVT through the
+resulting COM port (fakept ↔ installed service ↔ COM port ↔ fakeecr).
 
 ## Usage
 
@@ -143,62 +153,64 @@ PT  → ECR  Status-Information    26 B  04 0F 17 27 00 04 00 00 00 00 12 50 49 
 ## Windows setup
 
 Download `zvt-bridge-setup_<version>_windows_amd64.exe` from the
-[releases](https://github.com/KSauter/zvt-bridge/releases) and double-click it.
-It asks for administrator rights and then walks through four steps in a console
-window:
+[releases](https://github.com/KSauter/zvt-bridge/releases) and run it. The
+installer (Inno Setup, German or English) asks for administrator rights and for
 
-1. **Payment terminal** – IP address or host name and TCP port (default
-   20007); the connection is tested right away.
-2. **Serial port** – the emulated USB serial port (recommended) or an existing
-   COM port. For the emulated port the wizard offers to download usbip-win2
-   (pinned release, SHA-256 verified; or it uses `USBip-*-x64.exe` next to the
-   setup) and asks whether the port shall get a fixed COM number (e.g. `COM8`;
-   check that it is free, Intel AMT often takes `COM7` for Serial-over-LAN)
-   or the next free one.
-3. **Program files** – install directory (default `%ProgramFiles%\zvt-bridge`)
-   and log file. All settings are written to
-   `%ProgramData%\zvt-bridge\zvt-bridge.conf`.
-4. **Summary** – confirm.
+- the **payment terminal**: IP address or host name and TCP port (default 20007),
+- the **COM port name** for the cash register software: empty lets Windows pick
+  the next free number; a fixed one such as `COM8` makes several tills uniform
+  (check that it is free, Intel AMT often takes `COM7` for Serial-over-LAN).
 
-The setup then installs usbip-win2 silently if needed, copies the program (and
-an `uninstall.exe`) into the install directory, registers the Windows service
+It installs usbip-win2 (bundled, BSD-2-Clause, drivers signed by Microsoft) if
+needed, the program into `%ProgramFiles%\zvt-bridge`, the Windows service
 **ZvtBridge** (automatic start before login, restart after 5/10/30 s on
-failure, event log source), lists the program under *Settings > Apps*, waits
-for Windows to create the COM port, renames it if a fixed number was chosen and
-prints the result. The downloaded setup file can be deleted afterwards.
+failure, event log source) and the Start menu folder *ZVT Bridge* with
+**Repair COM port**, **Show log** and **Uninstall**. It waits for Windows to
+create the COM port, renames it if a fixed number was chosen and shows it on the
+last page. The setup output is kept in `%ProgramData%\zvt-bridge\setup.log`.
 
-**Changing settings later** (new terminal IP, port, …): edit
-`%ProgramData%\zvt-bridge\zvt-bridge.conf` – a commented `option = value`
-file the service reads at every start – and run `zvt-bridge.exe restart`
-from the install directory. Running the setup again works as well; it offers
-the current values as defaults. The COM number is a property of the device,
-not of the file: change it through the setup or Device Manager.
+Running a newer installer updates in place and keeps terminal and COM port.
+It also takes over an installation of the self-installing versions 1.0.x.
+
+Unattended (deployment scripts, Intune, …):
+
+```powershell
+.\zvt-bridge-setup_1.1.0_windows_amd64.exe /VERYSILENT /TERMINAL=192.168.10.50 /COM=COM8
+.\zvt-bridge-setup_1.1.0_windows_amd64.exe /VERYSILENT          # update, keeps the settings
+& "$env:ProgramFiles\zvt-bridge\unins000.exe" /VERYSILENT        # remove (usbip-win2 stays)
+```
+
+`/TERMINAL` takes `host` or `host:port`; `/LOG=<file>` writes the installer log.
+
+**Changing settings later** (new terminal IP, port, …): run the installer again,
+or edit `%ProgramData%\zvt-bridge\zvt-bridge.conf` – a commented
+`option = value` file the service reads at every start – and run
+`zvt-bridge.exe restart` from the install directory. The COM number is a
+property of the device, not of the file: change it through the installer or
+Device Manager.
 
 **COM port gone or "Unknown USB Device"?** If Windows no longer sets up the
 emulated device (the COM port is greyed out in Device Manager, an "Unknown USB
-Device (Device Descriptor Request Failed)" sits on the USBip controller), run
+Device (Device Descriptor Request Failed)" sits on the USBip controller), start
+*ZVT Bridge > Repair COM port* from the Start menu, or run
 
 ```powershell
-& "$env:ProgramFiles\zvt-bridge\zvt-bridge.exe" repair
+& "$env:ProgramFiles\zvt-bridge\zvt-bridge.exe" repair -yes
 ```
 
 It stops the service, unplugs all USB/IP devices, removes every device entry of
 the emulated device (phantoms included) and its cached USB settings, starts the
 service again and gives the new port its old COM name. `-reinstall-usbip`
-additionally reinstalls usbip-win2, `-com COM8` sets another name, `-yes` skips
-the questions. If it still fails, restart Windows and run it once more.
+additionally reinstalls usbip-win2, `-com COM8` sets another name. If it still
+fails, restart Windows and run it once more.
 
 Windows SmartScreen warns about unsigned downloads ("More info" → "Run
 anyway") until the releases are code-signed.
 
-Unattended (deployment scripts):
-
-```powershell
-.\zvt-bridge-setup_1.0.0_windows_amd64.exe setup -terminal 192.168.10.50 -download-usbip -yes
-.\zvt-bridge-setup_1.0.0_windows_amd64.exe setup -terminal 192.168.10.50 -com COM7 -usbip-setup .\USBip-0.9.8.1-x64.exe -yes
-.\zvt-bridge-setup_1.0.0_windows_amd64.exe setup -terminal 192.168.10.50 -mode serial -serial COM12 -yes
-"%ProgramFiles%\zvt-bridge\uninstall.exe" uninstall -yes [-remove-usbip] [-keep-logs]
-```
+**Without the installer:** `zvt-bridge.exe setup` is a console wizard that
+installs the program itself (also unattended: `setup -terminal 192.168.10.50
+-download-usbip -yes`, or `-mode serial -serial COM12` for an existing COM port
+pair), `zvt-bridge.exe uninstall` removes it again.
 
 Select the printed COM port (9600 8N2) as the terminal's serial port in the
 cash register software. Browser-based POS software using the Web Serial API
@@ -208,7 +220,7 @@ the device: replacing `usbser.sys` removes the COM port.
 
 Logs: `%ProgramData%\zvt-bridge\zvt-bridge.log`. Service control:
 `zvt-bridge.exe status | stop | start | restart`. The PowerShell scripts in `windows/`
-do the same as the wizard without questions and additionally support the
+do the same as the console wizard without questions and additionally support the
 com0com pair driver (`-Mode com0com`, blocked while Memory Integrity is on).
 
 The terminal must be set to ZVT over TCP/IP ("ECR via LAN", port 20007) and
