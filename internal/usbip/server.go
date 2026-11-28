@@ -65,6 +65,8 @@ type Server struct {
 
 	mu       sync.Mutex
 	imported *conn
+	conns    map[*conn]struct{} // open connections, closed when Serve stops
+	wg       sync.WaitGroup     // connection handlers
 }
 
 func (s *Server) logf(format string, args ...any) {
@@ -82,17 +84,24 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	return s.Serve(ctx, ln)
 }
 
-// Serve accepts connections on ln until ctx is cancelled.
+// Serve accepts connections on ln until ctx is cancelled. It returns after
+// every connection has been closed and its handler has finished.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	stop := make(chan struct{})
+	defer close(stop)
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-stop:
+		}
 		ln.Close()
 		s.mu.Lock()
-		if s.imported != nil {
-			s.imported.nc.Close()
+		for c := range s.conns {
+			c.nc.Close()
 		}
 		s.mu.Unlock()
 	}()
+	defer s.wg.Wait()
 	for {
 		nc, err := ln.Accept()
 		if err != nil {
@@ -104,7 +113,21 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		if tc, ok := nc.(*net.TCPConn); ok {
 			_ = tc.SetNoDelay(true)
 		}
-		go s.handle(&conn{nc: nc, srv: s})
+		c := &conn{nc: nc, srv: s}
+		s.mu.Lock()
+		if s.conns == nil {
+			s.conns = make(map[*conn]struct{})
+		}
+		s.conns[c] = struct{}{}
+		s.mu.Unlock()
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.handle(c)
+			s.mu.Lock()
+			delete(s.conns, c)
+			s.mu.Unlock()
+		}()
 	}
 }
 
