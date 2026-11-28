@@ -306,7 +306,14 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 
 	// ---- 3. Files
 	p.printf("\nStep 3/4: program files\n")
-	if cfg.InstallDir, err = p.ask("Install directory", cfg.InstallDir, nil); err != nil {
+	if cfg.Installer {
+		self, err := currentExe()
+		if err != nil {
+			return err
+		}
+		cfg.InstallDir = filepath.Dir(self)
+		p.printf("Install directory: %s (managed by the installer)\n", cfg.InstallDir)
+	} else if cfg.InstallDir, err = p.ask("Install directory", cfg.InstallDir, nil); err != nil {
 		return err
 	}
 	if cfg.LogFile, err = p.ask("Log file", cfg.LogFile, nil); err != nil {
@@ -381,7 +388,9 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 		}
 		p.printf("ok\n")
 	}
-	if err := installFiles(p, cfg.InstallDir, exe, uninstaller); err != nil {
+	if cfg.Installer {
+		removeSelfInstall(p, cfg.InstallDir)
+	} else if err := installFiles(p, cfg.InstallDir, exe, uninstaller); err != nil {
 		return err
 	}
 	_, rc := newRunFlags("setup")
@@ -405,8 +414,10 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 		return err
 	}
 	p.printf("running\n")
-	if err := registerUninstall(exe, uninstaller, cfg.InstallDir); err != nil {
-		p.printf("warning: not registered under Settings > Apps: %v\n", err)
+	if !cfg.Installer {
+		if err := registerUninstall(exe, uninstaller, cfg.InstallDir); err != nil {
+			p.printf("warning: not registered under Settings > Apps: %v\n", err)
+		}
 	}
 
 	posPort := cfg.SerialPort
@@ -422,6 +433,12 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 		posPort = port.Name
 	}
 
+	if cfg.ResultFile != "" {
+		if err := os.WriteFile(cfg.ResultFile, []byte(posPort), 0o644); err != nil {
+			p.printf("warning: write %s: %v\n", cfg.ResultFile, err)
+		}
+	}
+
 	p.printf("\nDone.\n")
 	if usb {
 		p.printf("  Serial port for the cash register software: %s (9600 baud, 8 data bits, no parity, 2 stop bits)\n", posPort)
@@ -430,7 +447,11 @@ func setupWizard(cfg *setupConfig, p *prompter) error {
 	}
 	p.printf("  Service %s is running. Log: %s\n", serviceName, cfg.LogFile)
 	p.printf("  Settings: %s\n    (edit, then \"%s\" restart; or run the setup again)\n", cfg.ConfigFile, exe)
-	p.printf("  Remove: Settings > Apps > ZVT Bridge, or %s\n", uninstaller)
+	if cfg.Installer {
+		p.printf("  Remove: Settings > Apps > ZVT Bridge\n")
+	} else {
+		p.printf("  Remove: Settings > Apps > ZVT Bridge, or %s\n", uninstaller)
+	}
 	return nil
 }
 
@@ -459,6 +480,20 @@ func installFiles(p *prompter, dir, exe, uninstaller string) error {
 	}
 	p.printf("ok\n")
 	return nil
+}
+
+// removeSelfInstall cleans up after a version that installed itself (1.0.x):
+// its Settings > Apps entry and uninstall.exe would otherwise stay next to
+// the installer's own.
+func removeSelfInstall(p *prompter, dir string) {
+	if registeredInstallDir() != "" {
+		if err := unregisterUninstall(); err == nil {
+			p.printf("Removed the Settings > Apps entry of the previous self-installed version\n")
+		}
+	}
+	if err := os.Remove(filepath.Join(dir, uninstallerName)); err == nil {
+		p.printf("Removed %s of the previous version\n", uninstallerName)
+	}
 }
 
 func sameFile(a, b string) bool {
@@ -507,7 +542,11 @@ func uninstallWizard(cfg *uninstallConfig, p *prompter) error {
 	if dir == "" {
 		dir = defaultInstallDir()
 	}
-	p.printf("This removes the %s service and the program files in %s.\n", serviceName, dir)
+	if cfg.Installer {
+		p.printf("This removes the %s service.\n", serviceName)
+	} else {
+		p.printf("This removes the %s service and the program files in %s.\n", serviceName, dir)
+	}
 	ok, err := p.yesNo("Continue?", true)
 	if err != nil {
 		return err
@@ -537,8 +576,10 @@ func uninstallWizard(cfg *uninstallConfig, p *prompter) error {
 	default:
 		p.printf("ok\n")
 	}
-	if err := unregisterUninstall(); err != nil {
-		p.printf("warning: Settings > Apps entry not removed: %v\n", err)
+	if !cfg.Installer {
+		if err := unregisterUninstall(); err != nil {
+			p.printf("warning: Settings > Apps entry not removed: %v\n", err)
+		}
 	}
 	if removeUsbip {
 		p.printf("Uninstalling usbip-win2 ... ")
@@ -550,6 +591,10 @@ func uninstallWizard(cfg *uninstallConfig, p *prompter) error {
 	}
 	if removeLogs {
 		os.RemoveAll(logDir)
+	}
+	if cfg.Installer {
+		p.printf("\nService removed; the installer removes the program files.\n")
+		return nil
 	}
 	p.printf("Removing program files in %s ... ", dir)
 	pending, err := removeInstallDir(dir)
