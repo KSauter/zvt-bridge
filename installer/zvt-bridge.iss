@@ -70,7 +70,7 @@ de.PageSub=Das Terminal muss auf ZVT über TCP/IP eingestellt sein ("ECR via LAN
 de.FieldHost=IP-Adresse oder Hostname des Terminals:
 de.FieldPort=TCP-Port für ZVT (meist 20007):
 de.FieldCom=COM-Port für die Kassensoftware (leer = automatisch):
-de.ErrHost=Bitte die IP-Adresse oder den Hostnamen des Terminals angeben.
+de.ErrHost=Bitte die IP-Adresse oder den Hostnamen des Terminals angeben (nur Buchstaben, Ziffern, Punkt und Bindestrich).
 de.ErrPort=Der Port muss eine Zahl zwischen 1 und 65535 sein.
 de.ErrCom=Der COM-Port muss leer bleiben oder z. B. COM8 lauten.
 de.ErrNoTerminal=Kein Terminal angegeben. Bei einer stillen Erstinstallation /TERMINAL=<IP>[:Port] übergeben.
@@ -86,7 +86,7 @@ en.PageSub=The terminal must be set to ZVT over TCP/IP ("ECR via LAN"). Windows 
 en.FieldHost=IP address or host name of the terminal:
 en.FieldPort=TCP port for ZVT (usually 20007):
 en.FieldCom=COM port for the cash register software (empty = automatic):
-en.ErrHost=Please enter the IP address or host name of the terminal.
+en.ErrHost=Please enter the IP address or host name of the terminal (letters, digits, dot and hyphen only).
 en.ErrPort=The port must be a number from 1 to 65535.
 en.ErrCom=Leave the COM port empty or enter e.g. COM8.
 en.ErrNoTerminal=No terminal given. Pass /TERMINAL=<ip>[:port] for a silent first installation.
@@ -169,6 +169,17 @@ begin
   Result := (N >= 1) and (N <= 65535);
 end;
 
+{ Host names and IPv4 addresses only: the value ends up on a command line. }
+function ValidHost(S: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := (S <> '') and (Length(S) <= 253);
+  for I := 1 to Length(S) do
+    if Pos(S[I], 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-') = 0 then
+      Result := False;
+end;
+
 function ValidCom(S: String): Boolean;
 var
   N: Integer;
@@ -219,7 +230,7 @@ begin
   if CompareText(Page.Values[2], 'AUTO') = 0 then
     Page.Values[2] := '';
   Result := False;
-  if Page.Values[0] = '' then
+  if not ValidHost(Page.Values[0]) then
     Msg := CustomMessage('ErrHost')
   else if not ValidPort(Page.Values[1]) then
     Msg := CustomMessage('ErrPort')
@@ -301,22 +312,21 @@ var
 begin
   WizardForm.StatusLabel.Caption := CustomMessage('StatusConfigure');
   WizardForm.ProgressGauge.Style := npbstMarquee;
-  ForceDirectories(ExtractFileDir(SetupLogFile));
   ResultFile := ExpandConstant('{tmp}\com.txt');
   { The mode is not passed: an update keeps a configuration that uses an
     existing COM port instead of the emulated one. }
   Params := 'setup -installer -yes' +
     ' -terminal "' + Page.Values[0] + ':' + Page.Values[1] + '"' +
     ' -usbip-setup "' + ExpandConstant('{tmp}\{#UsbipFile}') + '"' +
-    ' -result "' + ResultFile + '"';
+    ' -result "' + ResultFile + '"' +
+    ' -output "' + SetupLogFile + '"';
   if Page.Values[2] <> '' then
     Params := Params + ' -com ' + Page.Values[2];
   Log('zvt-bridge.exe ' + Params);
-  { cmd.exe only to redirect the console output into the log file. }
-  if not Exec(ExpandConstant('{cmd}'),
-      '/C ""' + ExpandConstant('{app}\zvt-bridge.exe') + '" ' + Params +
-      ' > "' + SetupLogFile + '" 2>&1"',
-      '', SW_HIDE, ewWaitUntilTerminated, Code) then
+  { Started directly, no cmd.exe: zvt-bridge.exe writes its output to
+    SetupLogFile itself (-output). }
+  if not Exec(ExpandConstant('{app}\zvt-bridge.exe'), Params, '', SW_HIDE,
+      ewWaitUntilTerminated, Code) then
     Code := -1;
   WizardForm.ProgressGauge.Style := npbstNormal;
   Log(LogTail(SetupLogFile, 200));

@@ -65,10 +65,21 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// downloadUsbip fetches the pinned release into the temp directory and
+// usbipStagingDir holds the usbip-win2 installer between the SHA-256 check
+// and its start. It lies in the secured data directory, so no user can swap
+// the file in between (the user's %TEMP% would allow that).
+func usbipStagingDir() string { return filepath.Join(dataDir(), "usbip-setup") }
+
+// downloadUsbip fetches the pinned release into the staging directory and
 // verifies its SHA-256.
 func downloadUsbip(p *prompter) (string, error) {
-	dst := filepath.Join(os.TempDir(), "USBip-"+usbipVersion+"-x64.exe")
+	if err := secureDataDir(dataDir()); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(usbipStagingDir(), 0o755); err != nil {
+		return "", err
+	}
+	dst := filepath.Join(usbipStagingDir(), "USBip-"+usbipVersion+"-x64.exe")
 	if sum, err := fileSHA256(dst); err == nil && sum == usbipSHA256 {
 		p.printf("Using the already downloaded %s\n", dst)
 		return dst, nil
@@ -105,8 +116,13 @@ func downloadUsbip(p *prompter) (string, error) {
 // installUsbip runs the usbip-win2 installer silently with the virtual host
 // controller ("main") and the usbip.exe client.
 func installUsbip(p *prompter, setupPath string) error {
+	staged, err := stageUsbipSetup(setupPath)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(usbipStagingDir())
 	p.printf("Installing usbip-win2 from %s ... ", setupPath)
-	cmd := exec.Command(setupPath, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/COMPONENTS=main,client", "/TASKS=vcredist")
+	cmd := exec.Command(staged, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/COMPONENTS=main,client", "/TASKS=vcredist")
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -119,6 +135,46 @@ func installUsbip(p *prompter, setupPath string) error {
 	}
 	p.printf("ok\n")
 	return nil
+}
+
+// stageUsbipSetup copies the installer into the staging directory (unless it
+// is there already) and checks the copy against the pinned SHA-256, so the
+// file that runs is the file that was checked.
+func stageUsbipSetup(src string) (string, error) {
+	if err := secureDataDir(dataDir()); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(usbipStagingDir(), 0o755); err != nil {
+		return "", err
+	}
+	dst := filepath.Join(usbipStagingDir(), "USBip-"+usbipVersion+"-x64.exe")
+	if !sameFile(src, dst) {
+		in, err := os.Open(src)
+		if err != nil {
+			return "", err
+		}
+		defer in.Close()
+		out, err := os.Create(dst)
+		if err != nil {
+			return "", err
+		}
+		_, err = io.Copy(out, in)
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return "", fmt.Errorf("copy %s: %w", src, err)
+		}
+	}
+	sum, err := fileSHA256(dst)
+	if err != nil {
+		return "", err
+	}
+	if sum != usbipSHA256 {
+		os.Remove(dst)
+		return "", fmt.Errorf("%s is not the usbip-win2 %s installer (SHA-256 %s, expected %s)", src, usbipVersion, sum, usbipSHA256)
+	}
+	return dst, nil
 }
 
 // usbipController reports whether the virtual USB host controller of

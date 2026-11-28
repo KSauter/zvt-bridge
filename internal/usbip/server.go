@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Device is a USB device emulated in software. One Device is served per Server.
@@ -122,8 +123,14 @@ func (c *conn) send(b []byte) {
 	}
 }
 
+// handshakeTimeout bounds the time between connecting and the import request.
+const handshakeTimeout = 10 * time.Second
+
 func (s *Server) handle(c *conn) {
 	defer c.nc.Close()
+	// A client that connects and sends nothing must not hold a goroutine and
+	// a socket forever; the operation request follows right after connecting.
+	_ = c.nc.SetReadDeadline(time.Now().Add(handshakeTimeout))
 	var oph [opHeaderSize]byte
 	if _, err := io.ReadFull(c.nc, oph[:]); err != nil {
 		return
@@ -154,6 +161,7 @@ func (s *Server) handle(c *conn) {
 			c.send(encodeOpHeader(OpRepImport, 1))
 			return
 		}
+		_ = c.nc.SetReadDeadline(time.Time{}) // URBs may pause for as long as the port is idle
 		c.send(append(encodeOpHeader(OpRepImport, 0), info.encode(false)...))
 		s.logf("usbip: device %s imported by %s", info.BusID, c.nc.RemoteAddr())
 		s.Device.Attached()

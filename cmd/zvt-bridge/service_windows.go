@@ -66,6 +66,8 @@ func runAsService(cfg *runConfig) int {
 	if cfg.LogFile == "" {
 		cfg.LogFile = defaultLogPath()
 	}
+	// Repairs the folder's permissions should anything have loosened them.
+	secureErr := secureDataDir(dataDir())
 	closeLog, err := setupLogging(cfg.LogFile, false)
 	if err != nil {
 		if elog, e := eventlog.Open(serviceName); e == nil {
@@ -75,6 +77,9 @@ func runAsService(cfg *runConfig) int {
 		return 1
 	}
 	defer closeLog()
+	if secureErr != nil {
+		log.Printf("warning: %v", secureErr)
+	}
 	if elog, err := eventlog.Open(serviceName); err == nil {
 		elog.Info(1, fmt.Sprintf("zvt-bridge %s starting: ECR %s, PT %s, log %s", version, cfg.Serial, cfg.addr(), cfg.LogFile))
 		elog.Close()

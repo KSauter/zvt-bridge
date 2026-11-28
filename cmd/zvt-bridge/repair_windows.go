@@ -50,6 +50,9 @@ func runRepair(cfg *repairConfig, p *prompter) int {
 // new COM port its old name.
 func repairUSB(cfg *repairConfig, p *prompter) error {
 	p.printf("zvt-bridge %s – repair the emulated USB serial port\n\n", version)
+	if err := secureDataDir(dataDir()); err != nil {
+		return err
+	}
 	rc, err := readConfigFile(cfg.ConfigFile)
 	if err != nil {
 		return fmt.Errorf("read %s: %w (is the bridge installed?)", cfg.ConfigFile, err)
@@ -61,6 +64,9 @@ func repairUSB(cfg *repairConfig, p *prompter) error {
 	usbipExe := rc.USBIPExe
 	if usbipExe == "" {
 		usbipExe = defaultUsbipExe
+	}
+	if err := checkTrustedExe(usbipExe); err != nil {
+		return fmt.Errorf("usbip-exe in %s: %w", cfg.ConfigFile, err)
 	}
 
 	// The COM name hangs on the device node that is about to be removed.

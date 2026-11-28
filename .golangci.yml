@@ -1,0 +1,19 @@
+version: "2"
+linters:
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gosec
+    - misspell
+    - noctx
+    - unconvert
+  settings:
+    gosec:
+      excludes:
+        - G204 # exec with variable arguments: usbip.exe and installers are run on purpose
+        - G304 # file paths from configuration and flags are expected
+formatters:
+  enable:
+    - gofmt
+    - goimports
