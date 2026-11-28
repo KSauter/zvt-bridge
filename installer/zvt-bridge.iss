@@ -322,8 +322,8 @@ begin
   Log(LogTail(SetupLogFile, 200));
   if Code <> 0 then
   begin
-    SuppressibleMsgBox(FmtMessage(CustomMessage('SetupFailed'),
-      [LogTail(SetupLogFile, 12), SetupLogFile]), mbError, MB_OK, IDOK);
+    SuppressibleMsgBox(FmtMessage(CustomMessage('SetupFailed'), [LogTail(SetupLogFile, 12),
+      SetupLogFile]), mbError, MB_OK, IDOK);
     Exit;
   end;
   if not LoadStringFromFile(ResultFile, ComResult) then
