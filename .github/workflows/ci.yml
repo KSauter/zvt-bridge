@@ -84,6 +84,9 @@ jobs:
           Write-Host "installer exit code: $($p.ExitCode)"
           Get-Content C:\ProgramData\zvt-bridge\setup.log -ErrorAction SilentlyContinue
           Get-Service ZvtBridge
+          $flag = sc.exe qfailureflag ZvtBridge | Out-String
+          Write-Host $flag
+          if ($flag -notmatch 'TRUE') { throw "restart on error exit is not enabled" }
           Get-PnpDevice -Class Ports -ErrorAction SilentlyContinue | Format-Table Status, FriendlyName, InstanceId -Auto
           Get-Content C:\ProgramData\zvt-bridge\zvt-bridge.log -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { throw "installer failed" }

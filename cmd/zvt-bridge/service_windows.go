@@ -206,6 +206,11 @@ func installService(cfg *runConfig, exe string) ([]string, error) {
 	}, 86400); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: recovery actions not set: %v\n", err)
 	}
+	// Without this flag Windows restarts the service only after a crash, not
+	// when it stops with an error (e.g. the USB/IP port is taken).
+	if err := s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: restart on error exit not set: %v\n", err)
+	}
 	if err := eventlog.InstallAsEventCreate(serviceName, eventlog.Error|eventlog.Warning|eventlog.Info); err != nil && !strings.Contains(err.Error(), "exists") {
 		fmt.Fprintf(os.Stderr, "warning: event log source not registered: %v\n", err)
 	}

@@ -5,7 +5,8 @@
 .DESCRIPTION
   Downloads the usbip-win2 installer pinned in cmd/zvt-bridge/usbipwin_windows.go,
   checks its SHA-256 and compiles installer/zvt-bridge.iss. The result is written
-  to dist/. Inno Setup 6 is installed through Chocolatey when ISCC is missing.
+  to dist/. Inno Setup (pinned below, SHA-256 checked) is installed into
+  dist/tools when it is not there yet.
 
 .PARAMETER Version  Version without the leading v, e.g. 1.0.2.
 .PARAMETER Exe      The zvt-bridge.exe to package (windows/amd64, built with the winres resources).
@@ -38,12 +39,21 @@ if (-not (Test-Path $usbip) -or (Get-FileHash $usbip -Algorithm SHA256).Hash -ne
 $sum = (Get-FileHash $usbip -Algorithm SHA256).Hash.ToLower()
 if ($sum -ne $usbipSha) { throw "SHA-256 mismatch for ${usbipFile}: $sum, expected $usbipSha" }
 
-$iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
-if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+# Pinned Inno Setup release; digest as published on the GitHub release.
+$innoVersion = '7.1.1'
+$innoSha = '8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0'
+$innoDir = Join-Path $root "dist\tools\innosetup-$innoVersion"
+$iscc = Join-Path $innoDir 'ISCC.exe'
 if (-not (Test-Path $iscc)) {
-    Write-Host 'Installing Inno Setup 6'
-    choco install innosetup --yes --no-progress | Out-Host
-    $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+    $tag = 'is-' + $innoVersion.Replace('.', '_')
+    $innoSetup = Join-Path $root "dist\tools\innosetup-$innoVersion-x64.exe"
+    New-Item -ItemType Directory -Force (Split-Path $innoSetup) | Out-Null
+    Write-Host "Downloading Inno Setup $innoVersion"
+    Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$innoVersion-x64.exe" -OutFile $innoSetup -UseBasicParsing
+    $sum = (Get-FileHash $innoSetup -Algorithm SHA256).Hash.ToLower()
+    if ($sum -ne $innoSha) { throw "SHA-256 mismatch for Inno Setup: $sum, expected $innoSha" }
+    $p = Start-Process $innoSetup -Wait -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER', '/NOICONS', "/DIR=$innoDir"
+    if ($p.ExitCode -ne 0 -or -not (Test-Path $iscc)) { throw "Inno Setup installation failed (exit code $($p.ExitCode))" }
 }
 
 # File version: numeric part only (1.0.3-dev.abc -> 1.0.3.0).
