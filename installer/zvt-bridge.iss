@@ -1,4 +1,4 @@
-; Inno Setup script for the Windows installer of zvt-bridge.
+; Inno Setup 7 script for the Windows installer of zvt-bridge.
 ;
 ; Build: installer\build.ps1 (downloads usbip-win2, checks its SHA-256, calls ISCC)
 ;   or by hand: iscc /DAppVersion=1.2.3 /DBinDir=<dir with zvt-bridge.exe and USBip-*.exe> zvt-bridge.iss
