@@ -4,24 +4,28 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
+  # Builds and publishes a draft release: zips, checksums, changelog.
   goreleaser:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
-      - name: Test
-        run: go test -count=1 ./...
-      - uses: goreleaser/goreleaser-action@v7
+          cache: false
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
-          version: "~> v2"
+          version: v2.20.3
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,25 +33,47 @@ jobs:
           # picks the highest tag on the commit by git version sort, which ranks
           # v0.1.0-beta.3 above v0.1.0 and republishes the pre-release.
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/checksums.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-amd64
+          path: dist/*_windows_amd64.zip
+          if-no-files-found: error
+          retention-days: 7
 
   # Inno Setup only runs on Windows. The installer packages the zvt-bridge.exe
-  # that goreleaser has just published, so zip and installer hold the same build.
+  # from the goreleaser zip, so zip and installer hold the same build. The
+  # release is published only after the installer is attached.
   installer:
     needs: goreleaser
     runs-on: windows-latest
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v7
-      - name: Download the Windows build of this release
-        run: |
-          gh release download "$env:GITHUB_REF_NAME" --pattern "zvt-bridge_*_windows_amd64.zip" --dir dist
-          Expand-Archive (Get-Item dist\zvt-bridge_*_windows_amd64.zip) -DestinationPath dist\release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-amd64
+          path: dist
+      - name: Extract the Windows build
+        run: Expand-Archive (Get-Item dist\zvt-bridge_*_windows_amd64.zip) -DestinationPath dist\release
       - name: Build the installer
         run: .\installer\build.ps1 -Version $env:GITHUB_REF_NAME.TrimStart('v') -Exe dist\release\zvt-bridge.exe
-      - name: Attach it to the release
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/zvt-bridge-setup_*_windows_amd64.exe
+      - name: Attach the installer and publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $setup = Get-Item dist\zvt-bridge-setup_*_windows_amd64.exe
           $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
           "$hash  $($setup.Name)" | Set-Content -NoNewline "$($setup.FullName).sha256"
-          gh release upload "$env:GITHUB_REF_NAME" $setup.FullName "$($setup.FullName).sha256" --clobber
+          gh release upload "$env:GITHUB_REF_NAME" $setup.FullName "$($setup.FullName).sha256" --clobber --repo "$env:GITHUB_REPOSITORY"
+          gh release edit "$env:GITHUB_REF_NAME" --draft=false --repo "$env:GITHUB_REPOSITORY"

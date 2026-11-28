@@ -226,7 +226,7 @@ func assignComName(p *prompter, port comPort, want string) comPort {
 func previousComName(vid, pid string) string {
 	prefix := strings.ToUpper(fmt.Sprintf(`USB\VID_%s&PID_%s&MI_00\`, vid, pid))
 	name := ""
-	forEachDeviceAll(&guidDevClassPorts, "USB", func(set windows.DevInfo, data *windows.DevInfoData, id string) error {
+	_ = forEachDeviceAll(&guidDevClassPorts, "USB", func(set windows.DevInfo, data *windows.DevInfoData, id string) error {
 		if name != "" || !strings.HasPrefix(strings.ToUpper(id), prefix) {
 			return nil
 		}
@@ -273,7 +273,7 @@ func removeDeviceNodes(vid, pid string) (removed int, failed []string) {
 		func(id string) bool { return strings.Contains(strings.ToUpper(id), "&MI_") },
 		func(id string) bool { return true },
 	} {
-		forEachDeviceAll(nil, "USB", func(set windows.DevInfo, data *windows.DevInfoData, id string) error {
+		err := forEachDeviceAll(nil, "USB", func(set windows.DevInfo, data *windows.DevInfoData, id string) error {
 			if !isRepairTarget(id, vid, pid, controllers) || !pass(id) {
 				return nil
 			}
@@ -284,6 +284,9 @@ func removeDeviceNodes(vid, pid string) (removed int, failed []string) {
 			}
 			return nil
 		})
+		if err != nil {
+			failed = append(failed, err.Error())
+		}
 	}
 	return removed, failed
 }
@@ -319,7 +322,7 @@ func forEachDeviceAll(class *windows.GUID, enumerator string, fn func(windows.De
 
 func usbipControllerIDs() []string {
 	var ids []string
-	forEachDevice(nil, "ROOT", func(set windows.DevInfo, data *windows.DevInfoData, id string) error {
+	_ = forEachDevice(nil, "ROOT", func(set windows.DevInfo, data *windows.DevInfoData, id string) error {
 		if isUsbipController(set, data) {
 			ids = append(ids, strings.ToUpper(id))
 		}

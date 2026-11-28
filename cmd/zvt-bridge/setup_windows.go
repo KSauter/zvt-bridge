@@ -643,10 +643,29 @@ func removeInstallDir(dir string) (pending bool, err error) {
 	}
 	if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		if pending {
-			deleteAtReboot(dir)
+			_ = deleteAtReboot(dir)
 		} else {
 			return false, fmt.Errorf("%s not removed (other files inside?): %w", dir, err)
 		}
 	}
 	return pending, nil
+}
+
+// probeTerminal checks whether the terminal accepts TCP connections.
+func probeTerminal(addr string, timeout time.Duration) error {
+	c, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return err
+	}
+	return c.Close()
+}
+
+// pause waits for Enter; used to keep a console window open that would
+// otherwise close together with the program.
+func (p *prompter) pause(label string) {
+	if p.assumeYes {
+		return
+	}
+	p.printf("%s", label)
+	_, _ = p.readLine()
 }

@@ -172,7 +172,8 @@ func (s *Server) handle(c *conn) {
 			s.imported = nil
 		}
 		s.mu.Unlock()
-		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+		// urbLoop only returns when the connection ends.
+		if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
 			s.logf("usbip: session with %s ended: %v", c.nc.RemoteAddr(), err)
 		} else {
 			s.logf("usbip: device %s released by %s", info.BusID, c.nc.RemoteAddr())

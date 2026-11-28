@@ -291,14 +291,14 @@ func TestEnumerationAndSerialPath(t *testing.T) {
 	if r = c.ret(); r.cmd != RetUnlink || r.seq != u || r.status != StatusECONNRESET {
 		t.Fatalf("unlink pending read: %+v", r)
 	}
-	u = c.unlink(notify2)
+	c.unlink(notify2)
 	if r = c.ret(); r.status != StatusECONNRESET {
 		t.Fatalf("unlink notification: %+v", r)
 	}
 	if dev.State().Open {
 		t.Fatal("port should be closed after both unlinks")
 	}
-	u = c.unlink(9999) // nothing pending with that seqnum
+	c.unlink(9999) // nothing pending with that seqnum
 	if r = c.ret(); r.status != 0 {
 		t.Fatalf("unlink of completed urb: %+v", r)
 	}

@@ -46,9 +46,11 @@ func (r *rotatingFile) open() error {
 func (r *rotatingFile) rotate() error {
 	r.f.Close()
 	for i := r.keep - 1; i >= 1; i-- {
-		os.Rename(fmt.Sprintf("%s.%d", r.path, i), fmt.Sprintf("%s.%d", r.path, i+1))
+		_ = os.Rename(fmt.Sprintf("%s.%d", r.path, i), fmt.Sprintf("%s.%d", r.path, i+1)) // older files may not exist yet
 	}
-	os.Rename(r.path, r.path+".1")
+	if err := os.Rename(r.path, r.path+".1"); err != nil {
+		fmt.Fprintf(os.Stderr, "log rotation: %v\n", err)
+	}
 	return r.open()
 }
 

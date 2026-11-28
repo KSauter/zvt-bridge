@@ -1,6 +1,6 @@
 VERSION ?= dev
 LDFLAGS := -s -w -X main.version=$(VERSION)
-GO      := CGO_ENABLED=0 go
+GO      := CGO_ENABLED=0 GOFLAGS=-trimpath go
 
 .PHONY: test build build-windows winres e2e e2e-usbip snapshot check clean
 

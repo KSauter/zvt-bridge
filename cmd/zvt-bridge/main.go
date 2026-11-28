@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -39,8 +40,6 @@ import (
 )
 
 var version = "dev"
-
-const serviceName = "ZvtBridge"
 
 type runConfig struct {
 	ConfigFile  string
@@ -267,7 +266,7 @@ func cmdRun(args []string) int {
 	fs, cfg := newRunFlags("run")
 	fs.Usage = usage
 	if err := parseRunFlags(fs, cfg, args); err != nil {
-		if err != flag.ErrHelp {
+		if !errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintln(os.Stderr, err)
 		}
 		return 2
@@ -309,7 +308,7 @@ func setupLogging(path string, console bool) (func(), error) {
 			return nil, fmt.Errorf("log file %s: %w", path, err)
 		}
 		writers = append(writers, rf)
-		closer = func() { rf.Close() }
+		closer = func() { _ = rf.Close() }
 	}
 	if len(writers) == 0 {
 		writers = append(writers, io.Discard)
@@ -398,15 +397,19 @@ func runUSB(ctx context.Context, cfg *runConfig) error {
 	go func() { runErr <- b.Run(ctx) }()
 	select {
 	case err := <-srvErr:
-		dev.Close()
-		<-runErr
+		_ = dev.Close()
+		if err := <-runErr; err != nil {
+			log.Printf("bridge: %v", err)
+		}
 		return fmt.Errorf("USB/IP server: %w", err)
 	case err := <-runErr:
-		dev.Close()
+		_ = dev.Close()
 		return err
 	case <-ctx.Done():
-		dev.Close()
-		<-runErr
+		_ = dev.Close()
+		if err := <-runErr; err != nil {
+			log.Printf("bridge: %v", err)
+		}
 		return nil
 	}
 }
@@ -423,7 +426,7 @@ func runSerial(ctx context.Context, cfg *runConfig) error {
 		} else {
 			log.Printf("ECR: %s opened", cfg.Serial)
 			err = newBridge(port, cfg).Run(ctx)
-			port.Close()
+			_ = port.Close()
 			if ctx.Err() != nil {
 				return nil
 			}
