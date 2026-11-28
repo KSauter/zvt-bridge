@@ -339,6 +339,6 @@ end;
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if (CurPageID = wpFinished) and (ComResult <> '') then
-    WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption +
-      #13#10#13#10 + FmtMessage(CustomMessage('FinishedCom'), [String(ComResult)]);
+    WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 +
+      FmtMessage(CustomMessage('FinishedCom'), [String(ComResult)]);
 end;
