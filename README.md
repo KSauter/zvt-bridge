@@ -1,3 +1,5 @@
+<img src="winres/icon.png" alt="" width="96" align="right">
+
 # zvt-bridge
 
 [![CI](https://github.com/KSauter/zvt-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/KSauter/zvt-bridge/actions/workflows/ci.yml)
