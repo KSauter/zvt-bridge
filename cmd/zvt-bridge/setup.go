@@ -29,6 +29,7 @@ type setupConfig struct {
 	Yes           bool
 	Installer     bool   // called by the installer package, which owns the program files
 	ResultFile    string // receives the COM port name for the cash register software
+	OutputFile    string // receives a copy of the console output
 }
 
 func newSetupFlags(name string) (*flag.FlagSet, *setupConfig) {
@@ -47,6 +48,7 @@ func newSetupFlags(name string) (*flag.FlagSet, *setupConfig) {
 	fs.BoolVar(&c.Yes, "yes", false, "do not ask anything, take the defaults and the given flags")
 	fs.BoolVar(&c.Installer, "installer", false, "called by the installer: leave program files and the Settings > Apps entry alone")
 	fs.StringVar(&c.ResultFile, "result", "", "write the COM port name for the cash register software to this file")
+	fs.StringVar(&c.OutputFile, "output", "", "also write the console output to this file")
 	return fs, c
 }
 

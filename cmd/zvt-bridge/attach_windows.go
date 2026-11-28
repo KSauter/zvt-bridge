@@ -26,6 +26,10 @@ const reattachDelay = 5 * time.Second
 // virtual hub stays there as "Unknown USB Device" (code 43) and blocks the
 // next attach.
 func attachLoop(ctx context.Context, cfg *runConfig, listenAddr string, released <-chan struct{}, attached func() bool) {
+	if err := checkTrustedExe(cfg.USBIPExe); err != nil {
+		log.Printf("usbip attach: usbip-exe: %v", err)
+		return
+	}
 	host, port, err := net.SplitHostPort(listenAddr)
 	if err != nil {
 		log.Printf("usbip attach: bad listen address %q: %v", listenAddr, err)

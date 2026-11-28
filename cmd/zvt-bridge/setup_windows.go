@@ -68,6 +68,19 @@ func runSetup(cfg *setupConfig, p *prompter) int {
 	if exit, code := ensureElevated(p); exit {
 		return code
 	}
+	if err := secureDataDir(dataDir()); err != nil {
+		p.printf("Setup failed: %v\n", err)
+		return 1
+	}
+	if cfg.OutputFile != "" {
+		f, err := os.Create(cfg.OutputFile)
+		if err != nil {
+			p.printf("Setup failed: %v\n", err)
+			return 1
+		}
+		defer f.Close()
+		p.out = io.MultiWriter(p.out, f)
+	}
 	if ownsConsole() {
 		defer p.pause("\nPress Enter to close this window.")
 	}
