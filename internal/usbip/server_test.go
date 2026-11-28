@@ -134,8 +134,10 @@ func startServer(t *testing.T) (*ACM, string) {
 	}
 	srv := &Server{Device: dev, Logf: t.Logf}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go srv.Serve(ctx, ln)
+	done := make(chan struct{})
+	go func() { _ = srv.Serve(ctx, ln); close(done) }()
+	// Serve logs through t.Logf until it has returned.
+	t.Cleanup(func() { cancel(); <-done })
 	return dev, ln.Addr().String()
 }
 
