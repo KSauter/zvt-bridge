@@ -78,7 +78,6 @@ gives them a COM port that leads to the terminal's LAN interface.
 | `internal/usbip` | USB/IP server and the emulated CDC-ACM device |
 | `installer/` | Inno Setup script of the Windows installer and its build script |
 | `winres/` | icon, version information and manifest of `zvt-bridge.exe` (go-winres) |
-| `windows/install.ps1`, `windows/uninstall.ps1` | scripted alternative to the setup wizard, also covers com0com |
 | `linux/zvt-bridge.service` | systemd unit |
 | `test/e2e-linux.sh` | end-to-end test with a PTY pair (socat) |
 | `test/e2e-usbip-linux.sh` | end-to-end test through the kernel's USB/IP client (`vhci-hcd`, needs root) |
@@ -221,9 +220,7 @@ the `SerialAllowAllPortsForUrls` policy. Do not run Zadig or similar tools on
 the device: replacing `usbser.sys` removes the COM port.
 
 Logs: `%ProgramData%\zvt-bridge\zvt-bridge.log`. Service control:
-`zvt-bridge.exe status | stop | start | restart`. The PowerShell scripts in `windows/`
-do the same as the console wizard without questions and additionally support the
-com0com pair driver (`-Mode com0com`, blocked while Memory Integrity is on).
+`zvt-bridge.exe status | stop | start | restart`.
 
 The terminal must be set to ZVT over TCP/IP ("ECR via LAN", port 20007) and
 be reachable from the POS computer: `Test-NetConnection <ip> -Port 20007`.
