@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // setupConfig is what the setup wizard collects. Every value can be preset
@@ -140,15 +139,6 @@ func terminalAddr(s string) (string, error) {
 		return "", fmt.Errorf("%q is not a valid port", port)
 	}
 	return net.JoinHostPort(host, port), nil
-}
-
-// probeTerminal checks whether the terminal accepts TCP connections.
-func probeTerminal(addr string, timeout time.Duration) error {
-	c, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return err
-	}
-	return c.Close()
 }
 
 var comNameRe = regexp.MustCompile(`(?i)^COM([1-9][0-9]{0,2})$`)

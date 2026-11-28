@@ -19,6 +19,8 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
+const serviceName = "ZvtBridge"
+
 func runningAsService() (bool, error) { return svc.IsWindowsService() }
 
 func defaultLogPath() string {
@@ -47,7 +49,9 @@ func (h *handler) Execute(_ []string, r <-chan svc.ChangeRequest, s chan<- svc.S
 			case svc.Stop, svc.Shutdown:
 				s <- svc.Status{State: svc.StopPending}
 				cancel()
-				<-done
+				if err := <-done; err != nil {
+					log.Printf("service: %v", err)
+				}
 				log.Println("service stopped")
 				return false, 0
 			}
@@ -114,7 +118,7 @@ func svcInstall(args []string) int {
 	fs, cfg := newRunFlags("install")
 	fs.Usage = usage
 	if err := parseRunFlags(fs, cfg, args); err != nil {
-		if err != flag.ErrHelp {
+		if !errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintln(os.Stderr, err)
 		}
 		return 2
@@ -187,7 +191,7 @@ func installService(cfg *runConfig, exe string) ([]string, error) {
 	}
 	m, err := mgr.Connect()
 	if err != nil {
-		return nil, fmt.Errorf("service control manager: %v (run as administrator)", err)
+		return nil, fmt.Errorf("service control manager: %w (run as administrator)", err)
 	}
 	defer m.Disconnect()
 	if s, err := m.OpenService(serviceName); err == nil {
@@ -219,7 +223,9 @@ func installService(cfg *runConfig, exe string) ([]string, error) {
 	if err := eventlog.InstallAsEventCreate(serviceName, eventlog.Error|eventlog.Warning|eventlog.Info); err != nil && !strings.Contains(err.Error(), "exists") {
 		fmt.Fprintf(os.Stderr, "warning: event log source not registered: %v\n", err)
 	}
-	os.MkdirAll(filepath.Dir(cfg.LogFile), 0o755)
+	if err := os.MkdirAll(filepath.Dir(cfg.LogFile), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: create log directory: %v\n", err)
+	}
 	if err := s.Start(); err != nil {
 		return svcArgs, fmt.Errorf("start service: %w", err)
 	}
@@ -247,7 +253,7 @@ func svcRemove() int {
 func removeService() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("service control manager: %v (run as administrator)", err)
+		return fmt.Errorf("service control manager: %w (run as administrator)", err)
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(serviceName)
@@ -263,7 +269,7 @@ func removeService() error {
 	if err := s.Delete(); err != nil {
 		return fmt.Errorf("delete service: %w", err)
 	}
-	eventlog.Remove(serviceName)
+	_ = eventlog.Remove(serviceName) // the source may never have been registered
 	return nil
 }
 

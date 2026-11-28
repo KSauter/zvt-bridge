@@ -7,7 +7,7 @@ project_name: zvt-bridge
 
 before:
   hooks:
-    - go mod tidy
+    - go mod tidy -diff
     - go vet ./...
     - go test ./...
     # Icon, version information and manifest of zvt-bridge.exe
@@ -18,6 +18,8 @@ builds:
     main: ./cmd/zvt-bridge
     binary: zvt-bridge
     env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
     goos: [windows, linux]
     goarch: [amd64, arm64, arm]
     goarm: ["6", "7"]
@@ -29,6 +31,8 @@ builds:
     main: ./cmd/fakept
     binary: fakept
     env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
     goos: [windows, linux]
     goarch: [amd64, arm64, arm]
     goarm: ["6", "7"]
@@ -40,6 +44,8 @@ builds:
     main: ./cmd/fakeecr
     binary: fakeecr
     env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
     goos: [windows, linux]
     goarch: [amd64, arm64, arm]
     goarm: ["6", "7"]
@@ -71,7 +77,8 @@ release:
     owner: KSauter
     name: zvt-bridge
   prerelease: auto
-  draft: false
+  # Published by the installer job once the Windows installer is attached.
+  draft: true
 
 snapshot:
   version_template: "{{ incpatch .Version }}-dev.{{ .ShortCommit }}"

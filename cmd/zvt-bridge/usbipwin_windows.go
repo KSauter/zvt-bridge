@@ -233,7 +233,7 @@ func waitForUsbipController(timeout time.Duration) (present bool, problem uint32
 func uninstallUsbip() error {
 	dir := filepath.Dir(defaultUsbipExe)
 	if exe := findUsbipExe(); exe != "" {
-		exec.Command(exe, "detach", "--all").Run()
+		_ = exec.Command(exe, "detach", "--all").Run() // nothing attached is fine
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "unins*.exe"))
 	if len(matches) == 0 {

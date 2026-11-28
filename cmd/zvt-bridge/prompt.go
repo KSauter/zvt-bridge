@@ -136,13 +136,3 @@ func (p *prompter) choose(label string, options []string, def int) (int, error) 
 		p.printf("Please enter a number between 1 and %d.\n", len(options))
 	}
 }
-
-// pause waits for Enter; used to keep a console window open that would
-// otherwise close together with the program.
-func (p *prompter) pause(label string) {
-	if p.assumeYes {
-		return
-	}
-	p.printf("%s", label)
-	p.readLine()
-}

@@ -1,0 +1,19 @@
+# Keeps the SHA-pinned GitHub Actions and the Go modules current. The pinned
+# Inno Setup and usbip-win2 versions (installer/build.ps1,
+# cmd/zvt-bridge/usbipwin_windows.go) need a manual update with a new SHA-256.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        update-types: [minor, patch]

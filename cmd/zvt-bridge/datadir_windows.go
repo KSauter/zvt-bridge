@@ -66,6 +66,8 @@ func secureDataDir(dir string) error {
 	if err := apply(dir, dataDirSDDL); err != nil {
 		return err
 	}
+	// The directory is already locked down here, so its entries can no longer
+	// be replaced by a user between the Lstat and the update below.
 	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || path == dir {
 			return err
@@ -76,7 +78,7 @@ func secureDataDir(dir string) error {
 		}
 		if isReparsePoint(fi) {
 			// os.Remove deletes the link, not its target.
-			if err := os.Remove(path); err != nil {
+			if err := os.Remove(path); err != nil { //nolint:gosec // G122: the directory is locked down already, see above
 				return fmt.Errorf("remove link %s: %w", path, err)
 			}
 			if d.IsDir() {

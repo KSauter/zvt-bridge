@@ -70,7 +70,7 @@ func openComDB() (comDB, error) {
 	return comDB(h), nil
 }
 
-func (db comDB) close() { procComDBClose.Call(uintptr(db)) }
+func (db comDB) close() { _, _, _ = procComDBClose.Call(uintptr(db)) }
 
 // inUse reports whether COM<n> is recorded as taken.
 func (db comDB) inUse(n int) (bool, error) {
@@ -224,7 +224,7 @@ func renameComPort(port comPort, newName string) error {
 			friendly += " (" + newName + ")"
 		}
 		if friendly != "" {
-			set.SetDeviceRegistryPropertyString(data, windows.SPDRP_FRIENDLYNAME, friendly)
+			_ = set.SetDeviceRegistryPropertyString(data, windows.SPDRP_FRIENDLYNAME, friendly) // cosmetic
 		}
 		params := windows.PropChangeParams{
 			ClassInstallHeader: *windows.MakeClassInstallHeader(windows.DIF_PROPERTYCHANGE),
@@ -246,7 +246,7 @@ func renameComPort(port comPort, newName string) error {
 		return fmt.Errorf("device %s is not present", port.InstanceID)
 	}
 	if newNum != oldNum && oldNum > 0 {
-		db.release(oldNum)
+		_ = db.release(oldNum)
 	}
 	return nil
 }
@@ -276,10 +276,10 @@ func registerUninstall(exe, uninstaller, installDir string) error {
 			return err
 		}
 	}
-	k.SetDWordValue("NoModify", 1)
-	k.SetDWordValue("NoRepair", 1)
+	_ = k.SetDWordValue("NoModify", 1)
+	_ = k.SetDWordValue("NoRepair", 1)
 	if fi, err := os.Stat(exe); err == nil {
-		k.SetDWordValue("EstimatedSize", uint32(fi.Size()/1024))
+		_ = k.SetDWordValue("EstimatedSize", uint32(fi.Size()/1024))
 	}
 	return nil
 }

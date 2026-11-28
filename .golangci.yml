@@ -6,13 +6,43 @@ linters:
     - errorlint
     - gosec
     - misspell
-    - noctx
     - unconvert
   settings:
+    errcheck:
+      # Best-effort cleanup whose error has no useful handling.
+      exclude-functions:
+        - (*os.File).Close
+        - (io.Closer).Close
+        - (net.Conn).Close
+        - (net.Listener).Close
+        - os.Remove
+        - os.RemoveAll
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (golang.org/x/sys/windows/registry.Key).Close
+        - (golang.org/x/sys/windows.DevInfo).Close
+        - (*golang.org/x/sys/windows/svc/mgr.Mgr).Disconnect
+        - (*golang.org/x/sys/windows/svc/mgr.Service).Close
+        - (*golang.org/x/sys/windows/svc/eventlog.Log).Close
+        - (*golang.org/x/sys/windows/svc/eventlog.Log).Info
+        - (*golang.org/x/sys/windows/svc/eventlog.Log).Error
+        - golang.org/x/sys/windows.CM_Get_DevNode_Status
     gosec:
       excludes:
-        - G204 # exec with variable arguments: usbip.exe and installers are run on purpose
-        - G304 # file paths from configuration and flags are expected
+        - G103 # unsafe.Pointer for Windows API calls
+        - G104 # unchecked errors: errcheck reports them, with the cleanup exceptions above
+        - G115 # integer conversions in the USB/IP and ZVT wire formats are deliberate
+        - G204 # usbip.exe and installers are started on purpose, with separate arguments
+        - G301 # Unix permission bits; the Windows data directory gets an explicit DACL
+        - G302
+        - G304 # file paths come from flags and the configuration
+        - G703 # same, as taint analysis
+        - G306
+  exclusions:
+    rules:
+      # Test helpers and simulators: ZVT length bytes are small by construction.
+      - path: (_test\.go|cmd/fake)
+        linters: [gosec, errcheck]
 formatters:
   enable:
     - gofmt

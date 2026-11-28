@@ -17,35 +17,67 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+      - name: Modules
+        run: |
+          go mod verify
+          go mod tidy -diff
       - name: Vet
         run: go vet ./...
       - name: Test
-        run: go test -race -count=1 ./...
+        run: go test -race -shuffle=on -count=1 ./...
       - name: Build
         run: go build ./...
+
+  lint:
+    name: Lint and vulnerabilities (${{ matrix.goos }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows]
+    env:
+      GOOS: ${{ matrix.goos }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+      - name: govulncheck
+        # built for the runner, then run against the target GOOS
+        run: |
+          GOOS= go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
 
   cross:
     name: Cross-compile and goreleaser check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
       - name: Vet for Windows
         run: GOOS=windows GOARCH=amd64 go vet ./...
       - name: Build all targets (snapshot)
-        uses: goreleaser/goreleaser-action@v7
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
-          version: "~> v2"
+          version: v2.20.3
           args: release --snapshot --clean --skip=publish
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: zvt-bridge-snapshot-windows-amd64
           path: dist/*_windows_amd64.zip
@@ -59,19 +91,21 @@ jobs:
     name: Windows installer (build and install)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
       - name: Build zvt-bridge.exe with resources, fakept, fakeecr
         run: |
           go tool go-winres make --in winres/winres.json --out cmd/zvt-bridge/rsrc --arch amd64 --product-version 0.0.0 --file-version 0.0.0
-          go build -ldflags "-s -w -X main.version=0.0.0-ci" -o dist/zvt-bridge.exe ./cmd/zvt-bridge
+          go build -trimpath -ldflags "-s -w -X main.version=0.0.0-ci" -o dist/zvt-bridge.exe ./cmd/zvt-bridge
           go build -o dist/fakept.exe ./cmd/fakept
           go build -o dist/fakeecr.exe ./cmd/fakeecr
       - name: Build the installer
         run: .\installer\build.ps1 -Version 0.0.0-ci -Exe dist\zvt-bridge.exe
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: zvt-bridge-setup-ci
           path: dist/zvt-bridge-setup_0.0.0-ci_windows_amd64.exe
@@ -90,6 +124,10 @@ jobs:
           Get-PnpDevice -Class Ports -ErrorAction SilentlyContinue | Format-Table Status, FriendlyName, InstanceId -Auto
           Get-Content C:\ProgramData\zvt-bridge\zvt-bridge.log -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { throw "installer failed" }
+          $acl = Get-Acl C:\ProgramData\zvt-bridge
+          $acl.Access | Format-Table IdentityReference, FileSystemRights, AccessControlType -Auto
+          if ($acl.Owner -ne 'BUILTIN\Administrators' -or -not $acl.AreAccessRulesProtected) { throw "data directory not secured (owner $($acl.Owner))" }
+          if ($acl.Access | Where-Object { $_.IdentityReference -match 'Users$|Authenticated Users|Everyone' -and $_.FileSystemRights -match 'Write|Modify|FullControl|CreateFiles' }) { throw "users can write to the data directory" }
           $com = (Get-PnpDevice -Class Ports -PresentOnly | Where-Object InstanceId -like '*VID_1209*').FriendlyName -replace '.*\((COM\d+)\).*', '$1'
           if (-not $com) { throw "no COM port of the emulated device" }
           Write-Host "COM port: $com"
@@ -112,8 +150,10 @@ jobs:
     name: End-to-end (Linux, PTY and USB/IP)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
       - name: Install socat and usbip
